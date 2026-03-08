@@ -1,11 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
+import os
 
-from analytics.reputation_index import ReputationIndex
+from utils.dataset_validator import DatasetValidator
 
 app = FastAPI(title="ValorEdge AI API")
 
+# allow frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,22 +16,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def home():
-    return {"message": "ValorEdge AI Backend Running"}
+UPLOAD_FOLDER = "uploads"
+
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 
-@app.get("/reputation-score")
-def reputation_score():
+@app.post("/upload-dataset")
+async def upload_dataset(file: UploadFile = File(...)):
 
-    df = pd.read_csv("data/sample_dataset.csv")
+    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
 
-    engine = ReputationIndex(df)
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
 
-    scores = engine.compute_reputation_score(
-        ["sentiment_score", "revenue_growth", "esg_score"]
-    )
+    # validate dataset
+    validator = DatasetValidator(file_path)
+    df = validator.run_validation()
 
     return {
-        "reputation_score": float(scores.mean())
+        "message": "Dataset uploaded and validated successfully",
+        "rows": len(df),
+        "columns": list(df.columns)
     }

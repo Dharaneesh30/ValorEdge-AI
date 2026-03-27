@@ -44,8 +44,10 @@ class AIAdviceService:
         self.ai_provider = "gemini"
         self.primary_model = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
         self.fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-1.5-flash")
-        self.xai_model = os.environ.get("XAI_MODEL", "grok-2-latest")
-        self.xai_api_base = os.environ.get("XAI_API_BASE", "https://api.x.ai/v1")
+        self.hf_model = os.environ.get("HF_MODEL", "google/flan-t5-large")
+        self.hf_api_base = os.environ.get("HF_API_BASE", "https://api-inference.huggingface.co/models")
+        self.ollama_model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+        self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         self._api_key_source = "missing"
         self.last_error = None
 
@@ -56,15 +58,23 @@ class AIAdviceService:
         self.ai_provider = (os.environ.get("AI_PROVIDER", "gemini") or "gemini").strip().lower()
         self.primary_model = os.environ.get("GEMINI_MODEL", self.primary_model)
         self.fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", self.fallback_model)
-        self.xai_model = os.environ.get("XAI_MODEL", self.xai_model)
-        self.xai_api_base = os.environ.get("XAI_API_BASE", self.xai_api_base)
+        self.hf_model = os.environ.get("HF_MODEL", self.hf_model)
+        self.hf_api_base = os.environ.get("HF_API_BASE", self.hf_api_base)
+        self.ollama_model = os.environ.get("OLLAMA_MODEL", self.ollama_model)
+        self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", self.ollama_base_url)
 
-        if self.ai_provider == "grok":
-            xai_key = os.environ.get("XAI_API_KEY")
-            if not xai_key:
+        if self.ai_provider == "ollama":
+            self._api_key_source = "none-local"
+            self.provider = "ollama-local"
+            self.provider_ready = True
+            return
+
+        if self.ai_provider == "huggingface":
+            hf_token = os.environ.get("HF_API_TOKEN")
+            if not hf_token:
                 return
-            self._api_key_source = "XAI_API_KEY"
-            self.provider = "xai-grok"
+            self._api_key_source = "HF_API_TOKEN"
+            self.provider = "huggingface-inference"
             self.provider_ready = True
             return
 
@@ -96,31 +106,59 @@ class AIAdviceService:
             self.provider = "none"
             self.last_error = str(e)
 
-    def _grok_headers(self) -> Dict[str, str]:
+    def _hf_headers(self) -> Dict[str, str]:
         return {
-            "Authorization": f"Bearer {os.environ.get('XAI_API_KEY', '')}",
+            "Authorization": f"Bearer {os.environ.get('HF_API_TOKEN', '')}",
             "Content-Type": "application/json",
         }
 
-    def _call_grok(self, prompt: str) -> str:
+    def _call_huggingface(self, prompt: str) -> str:
         response = requests.post(
-            f"{self.xai_api_base.rstrip('/')}/chat/completions",
-            headers=self._grok_headers(),
+            f"{self.hf_api_base.rstrip('/')}/{self.hf_model}",
+            headers=self._hf_headers(),
             json={
-                "model": self.xai_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.4,
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": 220,
+                    "temperature": 0.4,
+                    "return_full_text": False,
+                },
             },
             timeout=45,
         )
         response.raise_for_status()
         data = response.json()
-        choices = data.get("choices", [])
-        if not choices:
-            return ""
-        message = choices[0].get("message", {})
-        content = message.get("content", "")
-        return content.strip() if isinstance(content, str) else ""
+        if isinstance(data, dict) and data.get("error"):
+            raise RuntimeError(str(data.get("error")))
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            generated = data[0].get("generated_text", "")
+            return generated.strip() if isinstance(generated, str) else ""
+        if isinstance(data, dict):
+            generated = data.get("generated_text") or data.get("summary_text") or data.get("text")
+            return generated.strip() if isinstance(generated, str) else ""
+        if isinstance(data, str):
+            return data.strip()
+        return ""
+
+    def _call_ollama(self, prompt: str) -> str:
+        response = requests.post(
+            f"{self.ollama_base_url.rstrip('/')}/api/generate",
+            json={
+                "model": self.ollama_model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.4,
+                },
+            },
+            timeout=90,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, dict) and data.get("error"):
+            raise RuntimeError(str(data.get("error")))
+        text = data.get("response") if isinstance(data, dict) else None
+        return text.strip() if isinstance(text, str) else ""
 
     def _model_candidates(self) -> List[str]:
         env_candidates = os.environ.get("GEMINI_MODEL_CANDIDATES", "")
@@ -162,7 +200,10 @@ class AIAdviceService:
         return ""
 
     def _fallback_response(self) -> str:
-        provider_hint = "GEMINI_API_KEY" if self.ai_provider != "grok" else "XAI_API_KEY"
+        if self.ai_provider == "ollama":
+            provider_hint = "start Ollama and pull the selected model"
+        else:
+            provider_hint = "HF_API_TOKEN" if self.ai_provider == "huggingface" else "GEMINI_API_KEY"
         return (
             "- AI provider is not configured on this local setup.\n"
             f"- API results are still valid; add `{provider_hint}` to enable generated advice.\n"
@@ -171,7 +212,12 @@ class AIAdviceService:
 
     def _call_failure_response(self) -> str:
         error_text = (self.last_error or "").lower()
-        provider_name = "Grok" if self.ai_provider == "grok" else "Gemini"
+        if self.ai_provider == "huggingface":
+            provider_name = "Hugging Face"
+        elif self.ai_provider == "ollama":
+            provider_name = "Ollama"
+        else:
+            provider_name = "Gemini"
 
         if "resource_exhausted" in error_text or "quota exceeded" in error_text or "429" in error_text:
             return (
@@ -180,6 +226,12 @@ class AIAdviceService:
                 "- Retry after cooldown or switch to a key/project with active quota."
             )
 
+        if self.ai_provider == "ollama" and ("connection refused" in error_text or "max retries exceeded" in error_text):
+            return (
+                "- Ollama is not reachable on the configured local URL.\n"
+                "- Start Ollama and ensure the model is pulled (for example: `ollama pull llama3.1:8b`).\n"
+                "- API results are still valid for analysis, forecast, and simulation."
+            )
         if "winerror 10013" in error_text or "failed to establish a new connection" in error_text:
             return (
                 f"- {provider_name} request failed: network access is blocked from this machine.\n"
@@ -201,7 +253,8 @@ class AIAdviceService:
             "ai provider is configured but request failed" in lowered
             or "ai provider is not configured on this local setup" in lowered
             or "gemini request failed" in lowered
-            or "grok request failed" in lowered
+            or "hugging face request failed" in lowered
+            or "ollama is not reachable" in lowered
         )
 
     def _local_dashboard_advice(self, reputation_score: float, prediction_class: str, top_feature: str) -> str:
@@ -272,9 +325,17 @@ class AIAdviceService:
             return self._fallback_response()
 
         try:
-            if self.ai_provider == "grok":
+            if self.ai_provider == "ollama":
                 try:
-                    text = self._call_grok(prompt)
+                    text = self._call_ollama(prompt)
+                    return text if text else self._call_failure_response()
+                except Exception as provider_error:
+                    self.last_error = str(provider_error)
+                    return self._call_failure_response()
+
+            if self.ai_provider == "huggingface":
+                try:
+                    text = self._call_huggingface(prompt)
                     return text if text else self._call_failure_response()
                 except Exception as provider_error:
                     self.last_error = str(provider_error)
@@ -329,7 +390,9 @@ class AIAdviceService:
             "ai_provider": self.ai_provider,
             "primary_model": self.primary_model,
             "fallback_model": self.fallback_model,
-            "xai_model": self.xai_model if self.ai_provider == "grok" else None,
+            "hf_model": self.hf_model if self.ai_provider == "huggingface" else None,
+            "ollama_model": self.ollama_model if self.ai_provider == "ollama" else None,
+            "ollama_base_url": self.ollama_base_url if self.ai_provider == "ollama" else None,
             "api_key_source": self._api_key_source,
             "has_google_genai_sdk": genai_client is not None,
             "has_google_generativeai_sdk": genai is not None,

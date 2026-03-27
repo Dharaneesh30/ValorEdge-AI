@@ -32,7 +32,7 @@ class ForecastEngine:
 
         forecast = fit_model.forecast(3)
 
-        return forecast
+        return forecast.tolist()
 
     # -------------------------------------
     # ADF Test (Stationarity)
@@ -61,7 +61,7 @@ class ForecastEngine:
             end=len(self.df) + 3
         )
 
-        return forecast
+        return forecast.tolist()
 
     # -------------------------------------
     # ARIMA Model
@@ -74,7 +74,7 @@ class ForecastEngine:
 
         forecast = model_fit.forecast(steps=3)
 
-        return forecast
+        return forecast.tolist()
 
     # -------------------------------------
     # Multivariate Forecast

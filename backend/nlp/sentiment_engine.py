@@ -24,3 +24,16 @@ class SentimentEngine:
             results.append(self.analyze_text(text)["compound"])
 
         return results
+
+    def batch_analyze(self, df, text_column):
+
+        if text_column not in df.columns:
+            raise ValueError(f"Column '{text_column}' not found in dataframe")
+
+        df = df.copy()
+
+        df["sentiment_score"] = df[text_column].fillna("").astype(str).apply(
+            lambda t: self.analyze_text(t)["compound"]
+        )
+
+        return df

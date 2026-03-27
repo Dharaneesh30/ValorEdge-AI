@@ -36,7 +36,7 @@ class RegressionModels:
 
         return {
             "model": model,
-            "predictions": predictions,
+            "predictions": predictions.tolist(),
             "mse": mean_squared_error(y, predictions),
             "mae": mean_absolute_error(y, predictions)
         }
@@ -55,8 +55,8 @@ class RegressionModels:
 
         return {
             "model": model,
-            "coefficients": dict(zip(feature_columns, model.coef_)),
-            "predictions": predictions
+            "coefficients": {k: float(v) for k, v in zip(feature_columns, model.coef_)},
+            "predictions": predictions.tolist()
         }
 
     # ----------------------------------
@@ -76,7 +76,7 @@ class RegressionModels:
 
         return {
             "model": model,
-            "predictions": predictions,
+            "predictions": predictions.tolist(),
             "mse": mean_squared_error(y, predictions)
         }
 

@@ -1,8 +1,8 @@
 import pandas as pd
+import numpy as np
 
 from models.regression_models import RegressionModels
 from models.logistic_model import ReputationClassifier
-
 
 class PredictionService:
 
@@ -14,7 +14,11 @@ class PredictionService:
         features = [
             "sentiment_score",
             "revenue_growth",
-            "esg_score"
+            "esg_score",
+            "employee_rating",
+            "market_share",
+            "media_mentions",
+            "customer_satisfaction"
         ]
 
         target = "reputation_score"
@@ -23,7 +27,7 @@ class PredictionService:
 
         result = regression.multiple_regression(features, target)
 
-        predicted_score = result["predictions"].mean()
+        predicted_score = float(np.mean(result["predictions"]))
 
         classifier = ReputationClassifier(self.df)
 
@@ -36,6 +40,7 @@ class PredictionService:
         )
 
         return {
-            "predicted_score": float(predicted_score),
-            "prediction": prediction
+            "predicted_score": predicted_score,
+            "reputation_class": prediction,
+            "coefficients": result.get("coefficients", {})
         }

@@ -1,16 +1,26 @@
-from models.regression_models import RegressionModels
-from models.logistic_model import ReputationClassifier
-from fastapi import FastAPI, UploadFile, File
-from forecasting.arima_model import ForecastEngine
-from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
 import os
 
-from utils.dataset_validator import DatasetValidator
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="ValorEdge AI API")
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
-# allow frontend access
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if load_dotenv is not None:
+    load_dotenv(os.path.join(ROOT_DIR, "backend", ".env"))
+    load_dotenv(os.path.join(ROOT_DIR, ".env"))
+
+from api.routes.upload_routes import router as upload_router
+from api.routes.analysis_routes import router as analysis_router
+from api.routes.prediction_routes import router as prediction_router
+from api.routes.forecast_routes import router as forecast_router
+from api.routes.ai_routes import router as ai_router
+
+app = FastAPI(title="ValorEdge AI")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,71 +29,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_FOLDER = "uploads"
+app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
+app.include_router(analysis_router, prefix="/api/analysis", tags=["analysis"])
+app.include_router(prediction_router, prefix="/api/predict", tags=["prediction"])
+app.include_router(forecast_router, prefix="/api/forecast", tags=["forecast"])
+app.include_router(ai_router, prefix="/api/ai", tags=["ai"])
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
 
-
-@app.post("/upload-dataset")
-async def upload_dataset(file: UploadFile = File(...)):
-
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
-
-    # validate dataset
-    validator = DatasetValidator(file_path)
-    df = validator.run_validation()
-
-    return {
-        "message": "Dataset uploaded and validated successfully",
-        "rows": len(df),
-        "columns": list(df.columns)
-    }
-
-@app.get("/analysis")
-def run_analysis():
-
-    import pandas as pd
-
-    df = pd.read_csv("uploads/dataset.csv")
-
-    # Descriptive statistics
-    stats_engine = DescriptiveStats(df)
-    stats = stats_engine.compute()
-
-    # Correlation matrix
-    corr_engine = CorrelationAnalysis(df)
-    corr = corr_engine.compute()
-
-    # Reputation index
-    rep_engine = ReputationIndex(df)
-    reputation_scores = rep_engine.compute_reputation_score(
-        ["sentiment_score", "revenue_growth", "esg_score"]
-    )
-
-    return {
-        "descriptive_statistics": stats,
-        "correlation_matrix": corr,
-        "reputation_score": float(reputation_scores.mean())
-    }
-@app.get("/forecast")
-def run_forecast():
-
-    import pandas as pd
-
-    df = pd.read_csv("uploads/dataset.csv")
-
-    forecast_engine = ForecastEngine(df)
-
-    # ARIMA forecast for reputation score
-    forecast = forecast_engine.arima_forecast("reputation_score")
-
-    # Convert to normal list for JSON response
-    forecast_values = [float(x) for x in forecast]
-
-    return {
-        "forecast_values": forecast_values
-    }
+@app.get("/")
+def health_check():
+    return {"status": "ValorEdge AI is running"}

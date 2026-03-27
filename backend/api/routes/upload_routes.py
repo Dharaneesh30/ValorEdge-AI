@@ -1,14 +1,17 @@
 import os
+import pandas as pd
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 
 from utils.dataset_validator import DatasetValidator
+from services.ai_advice_service import AIAdviceService
 
 router = APIRouter()
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+ai_service = AIAdviceService()
 
 @router.post("/upload-dataset")
 async def upload_dataset(file: UploadFile = File(...)):
@@ -20,7 +23,6 @@ async def upload_dataset(file: UploadFile = File(...)):
 
         content = await file.read()
 
-        # Save raw file data and optionally convert excel to csv
         if file.filename.lower().endswith(".xlsx"):
             temp_path = os.path.join(UPLOAD_DIR, "dataset.xlsx")
             with open(temp_path, "wb") as f:
@@ -33,16 +35,28 @@ async def upload_dataset(file: UploadFile = File(...)):
 
         df = validator.run_validation()
 
-        preview = df.head(5).to_dict(orient="records")
+        columns = df.columns.tolist()
+        row_count = len(df)
+
+        # detect optional missing columns
+        optional_columns = ["media_mentions", "customer_satisfaction"]
+        missing_cols = [c for c in optional_columns if c not in columns]
+
+        ai_advice = ai_service.get_upload_advice(columns, row_count, missing_cols)
+
+        preview_df = df.head(5).astype(object)
+        clean_preview_df = preview_df.where(pd.notna(preview_df), None)
+        preview = clean_preview_df.to_dict(orient="records")
 
         return JSONResponse({
-            "rows": len(df),
-            "columns": df.columns.tolist(),
-            "preview": preview
+            "message": "Dataset uploaded and validated successfully",
+            "rows": row_count,
+            "columns": columns,
+            "preview": preview,
+            "ai_advice": ai_advice
         })
 
     except HTTPException as he:
         raise he
-
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -7,11 +7,17 @@ class DatasetValidator:
     REQUIRED_COLUMNS = [
         "company",
         "year",
+        "month",
+        "period",
         "sentiment_score",
         "revenue_growth",
         "esg_score",
         "employee_rating",
-        "market_share"
+        "market_share",
+        "media_mentions",
+        "customer_satisfaction",
+        "reputation_score",
+        "event_note"
     ]
 
     def __init__(self, file_path: str):
@@ -56,16 +62,22 @@ class DatasetValidator:
     def validate_data_types(self):
 
         numeric_columns = [
+            "year",
             "sentiment_score",
             "revenue_growth",
             "esg_score",
             "employee_rating",
-            "market_share"
+            "market_share",
+            "media_mentions",
+            "customer_satisfaction",
+            "reputation_score"
         ]
 
+        # Cast numeric columns to numeric type and validate
         for col in numeric_columns:
-            if not pd.api.types.is_numeric_dtype(self.df[col]):
-                raise ValueError(f"Column '{col}' must be numeric")
+            self.df[col] = pd.to_numeric(self.df[col], errors="coerce")
+            if self.df[col].isna().all():
+                raise ValueError(f"Column '{col}' must contain numeric values")
 
         return True
 
@@ -74,7 +86,8 @@ class DatasetValidator:
     # -----------------------------
     def validate_year(self):
 
-        if not pd.api.types.is_numeric_dtype(self.df["year"]):
+        self.df["year"] = pd.to_numeric(self.df["year"], errors="coerce")
+        if self.df["year"].isna().all():
             raise ValueError("Year column must contain numeric values")
 
         return True

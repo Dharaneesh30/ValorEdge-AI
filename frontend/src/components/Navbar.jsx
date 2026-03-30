@@ -1,10 +1,21 @@
+import { useLocation } from "react-router-dom";
+
+const pageMap = {
+  "/upload": "Upload",
+  "/dashboard": "Dashboard (What)",
+  "/ai-analytics": "AI Analytics (Why)",
+  "/strategy": "Strategy (What To Do)",
+};
+
 function Navbar() {
+  const location = useLocation();
+  const page = pageMap[location.pathname] || "ValorEdge AI";
+
   return (
-    <div className="w-full h-16 bg-white shadow flex items-center px-6">
-      <h2 className="text-xl font-semibold">
-        Corporate Reputation Intelligence Platform
-      </h2>
-    </div>
+    <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between">
+      <h2 className="font-semibold text-slate-900">{page}</h2>
+      <span className="text-xs text-slate-500">Dashboard | Analytics | Strategy</span>
+    </header>
   );
 }
 

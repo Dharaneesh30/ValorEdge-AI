@@ -1,37 +1,182 @@
 import {
-  LineChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
   Line,
+  LineChart,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
   XAxis,
   YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
 } from "recharts";
+import { Fragment } from "react";
 
-const data = [
-  { year: "2019", reputation: 0.52 },
-  { year: "2020", reputation: 0.58 },
-  { year: "2021", reputation: 0.63 },
-  { year: "2022", reputation: 0.69 },
-  { year: "2023", reputation: 0.74 },
-];
-
-function Charts() {
+export function SentimentTrendChart({ data }) {
   return (
-    <div className="bg-white shadow rounded-lg p-6 mt-6">
-      <h2 className="text-lg font-semibold mb-4">Reputation Trend</h2>
-
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={data}>
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">Sentiment Trend</h3>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={data || []}>
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="year" />
-          <YAxis />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={24} />
+          <YAxis domain={[-1, 1]} />
           <Tooltip />
-          <Line type="monotone" dataKey="reputation" stroke="#2563eb" strokeWidth={3} />
+          <Line type="monotone" dataKey="score" stroke="#0f766e" strokeWidth={2.5} dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-export default Charts;
+export function PcaScatterChart({ data }) {
+  const points = (data || []).map((item) => ({
+    x: item.pc1 ?? 0,
+    y: item.pc2 ?? 0,
+  }));
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">PCA Visualization (2D)</h3>
+      <ResponsiveContainer width="100%" height={260}>
+        <ScatterChart>
+          <CartesianGrid />
+          <XAxis type="number" dataKey="x" name="PC1" />
+          <YAxis type="number" dataKey="y" name="PC2" />
+          <Tooltip cursor={{ strokeDasharray: "3 3" }} />
+          <Scatter data={points} fill="#0ea5e9" />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function ClusterChart({ data }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">Cluster Visualization</h3>
+      <ResponsiveContainer width="100%" height={260}>
+        <ScatterChart>
+          <CartesianGrid />
+          <XAxis type="number" dataKey="x" name="PC1" />
+          <YAxis type="number" dataKey="y" name="PC2" />
+          <Tooltip />
+          <Scatter data={data || []} fill="#f97316" />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function ModelComparisonChart({ data }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">Model Comparison</h3>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data || []}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="model" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+          <Bar dataKey="rmse" fill="#ef4444" />
+          <Bar dataKey="r2" fill="#22c55e" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function ForecastChart({ history, forecast }) {
+  const merged = [
+    ...(history || []).map((x) => ({ ...x, type: "history" })),
+    ...(forecast || []).map((x) => ({ ...x, type: "forecast" })),
+  ];
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">30-Day Forecast</h3>
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={merged}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={24} />
+          <YAxis domain={[-1, 1]} />
+          <Tooltip />
+          <Legend />
+          <Line type="monotone" dataKey="value" stroke="#1d4ed8" strokeWidth={2} dot={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function FeatureImportanceChart({ data }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">Random Forest Feature Importance</h3>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data || []} layout="vertical" margin={{ left: 40 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis type="number" />
+          <YAxis dataKey="feature" type="category" width={120} tick={{ fontSize: 11 }} />
+          <Tooltip />
+          <Bar dataKey="importance" fill="#7c3aed" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function CorrelationHeatmap({ matrix }) {
+  const rows = Object.keys(matrix || {});
+  if (!rows.length) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <h3 className="font-semibold text-slate-800 mb-3">Correlation Heatmap</h3>
+        <p className="text-sm text-slate-500">No correlation matrix available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">Correlation Heatmap</h3>
+      <div className="overflow-x-auto">
+        <div
+          className="grid gap-1 bg-slate-100 p-2 rounded"
+          style={{ gridTemplateColumns: `120px repeat(${rows.length}, minmax(72px, 1fr))` }}
+        >
+          <div className="text-xs font-semibold text-slate-600" />
+          {rows.map((col) => (
+            <div key={`h-${col}`} className="text-[10px] font-semibold text-slate-600 truncate">{col}</div>
+          ))}
+          {rows.map((row) => (
+            <Fragment key={`row-${row}`}>
+              <div className="text-[10px] font-semibold text-slate-600 truncate">{row}</div>
+              {rows.map((col) => {
+                const value = matrix?.[row]?.[col] ?? 0;
+                const normalized = Math.min(1, Math.max(-1, value));
+                const intensity = Math.round(Math.abs(normalized) * 180);
+                const bg =
+                  normalized >= 0
+                    ? `rgb(${235 - intensity}, ${255 - intensity / 2}, ${235 - intensity})`
+                    : `rgb(${255 - intensity / 2}, ${235 - intensity}, ${235 - intensity})`;
+                return (
+                  <div
+                    key={`${row}-${col}`}
+                    className="h-8 text-[10px] rounded flex items-center justify-center"
+                    style={{ backgroundColor: bg }}
+                  >
+                    {Number(value).toFixed(2)}
+                  </div>
+                );
+              })}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

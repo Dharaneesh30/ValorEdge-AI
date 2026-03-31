@@ -42,6 +42,7 @@ class AIAdviceService:
         self.provider_ready = False
         self.provider = "none"
         self.ai_provider = "gemini"
+        self.supported_providers = {"gemini", "huggingface", "ollama"}
         self.primary_model = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
         self.fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-1.5-flash")
         self.hf_model = os.environ.get("HF_MODEL", "google/flan-t5-large")
@@ -56,6 +57,12 @@ class AIAdviceService:
         _safe_load_dotenv(os.path.join(root_dir, ".env"))
 
         self.ai_provider = (os.environ.get("AI_PROVIDER", "gemini") or "gemini").strip().lower()
+        if self.ai_provider not in self.supported_providers:
+            self.last_error = f"Unsupported AI_PROVIDER value: {self.ai_provider}"
+            self.ai_provider = "none"
+            self.provider = "none"
+            self.provider_ready = False
+            return
         self.primary_model = os.environ.get("GEMINI_MODEL", self.primary_model)
         self.fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", self.fallback_model)
         self.hf_model = os.environ.get("HF_MODEL", self.hf_model)
@@ -200,6 +207,12 @@ class AIAdviceService:
         return ""
 
     def _fallback_response(self) -> str:
+        if self.ai_provider == "none":
+            return (
+                "- AI provider is disabled or invalid in configuration.\n"
+                "- Set `AI_PROVIDER` to one of: `gemini`, `huggingface`, or `ollama`.\n"
+                "- API results are still valid; local advice remains available."
+            )
         if self.ai_provider == "ollama":
             provider_hint = "start Ollama and pull the selected model"
         else:
@@ -252,6 +265,7 @@ class AIAdviceService:
         return (
             "ai provider is configured but request failed" in lowered
             or "ai provider is not configured on this local setup" in lowered
+            or "ai provider is disabled or invalid in configuration" in lowered
             or "gemini request failed" in lowered
             or "hugging face request failed" in lowered
             or "ollama is not reachable" in lowered

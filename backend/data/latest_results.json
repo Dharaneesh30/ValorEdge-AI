@@ -31689,12 +31689,12 @@
     "final_reputation_score": 0.5571
   },
   "genai_insights": {
-    "insight_text": "- AI provider is configured but request failed.\n- Check backend terminal logs for provider error details (invalid key, API restrictions, or network).\n- API results are still valid for analysis, forecast, and simulation.",
+    "insight_text": "Current reputation score is 0.557, with a improving near-term trajectory. Top cluster drivers: showing strong, strong, volatile, showing volatile, reputation score, score. Best-performing predictive model is random_forest based on RMSE. Recommended actions: improve response quality on negative themes, align communication with top positive peer topics, and monitor weekly sentiment/forecast shifts to trigger rapid mitigation.",
     "provider_status": {
       "provider_ready": true,
       "provider": "google-generativeai",
       "ai_provider": "gemini",
-      "primary_model": "gemini-2.0-fl Microsoft ash",
+      "primary_model": "gemini-2.0-flash",
       "fallback_model": "gemini-2.0-flash",
       "hf_model": null,
       "ollama_model": null,

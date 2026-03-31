@@ -57,6 +57,43 @@ class FullPipelineService:
         with self.results_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=True, indent=2)
 
+    @staticmethod
+    def _local_insight_fallback(
+        reputation_score: float,
+        cluster_keywords: Dict[str, Any],
+        model_rows: Any,
+        forecast_rows: Any,
+    ) -> str:
+        top_cluster = None
+        if isinstance(cluster_keywords, dict) and cluster_keywords:
+            top_cluster = next(iter(cluster_keywords.items()))
+        top_cluster_text = (
+            f"Top cluster drivers: {', '.join((top_cluster[1] or [])[:6])}."
+            if top_cluster
+            else "Top cluster drivers are not yet available."
+        )
+        trend = "stable"
+        if forecast_rows:
+            try:
+                first = float(forecast_rows[0].get("value", 0.0))
+                last = float(forecast_rows[min(len(forecast_rows) - 1, 6)].get("value", 0.0))
+                trend = "improving" if last > first else "declining" if last < first else "stable"
+            except Exception:
+                trend = "stable"
+
+        best_model = ""
+        if isinstance(model_rows, list) and model_rows:
+            sorted_rows = sorted(model_rows, key=lambda x: x.get("rmse", 1e9))
+            best_model = sorted_rows[0].get("model", "")
+
+        return (
+            f"Current reputation score is {reputation_score:.3f}, with a {trend} near-term trajectory. "
+            f"{top_cluster_text} "
+            f"Best-performing predictive model is {best_model or 'available model'} based on RMSE. "
+            "Recommended actions: improve response quality on negative themes, align communication with top positive peer topics, "
+            "and monitor weekly sentiment/forecast shifts to trigger rapid mitigation."
+        )
+
     def run(self, uploaded_path: Path) -> Dict[str, Any]:
         logger.info("Pipeline started for upload: %s", uploaded_path)
 
@@ -139,6 +176,13 @@ class FullPipelineService:
             f"Forecast sample: {forecast_results['forecast'][:5]}."
         )
         genai_text = self.ai_service.generate_text(prompt)
+        if self.ai_service._is_provider_failure(genai_text):
+            genai_text = self._local_insight_fallback(
+                reputation_score=float(reputation["final_reputation_score"]),
+                cluster_keywords=cluster_result["interpretation"]["cluster_keywords"],
+                model_rows=model_results["model_comparison"],
+                forecast_rows=forecast_results["forecast"],
+            )
         genai_payload = {
             "insight_text": genai_text,
             "provider_status": self.ai_service.status(),

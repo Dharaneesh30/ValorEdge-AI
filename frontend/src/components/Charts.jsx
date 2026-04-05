@@ -16,11 +16,11 @@ import { Fragment } from "react";
 
 export function SentimentTrendChart({ data }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">Sentiment Trend</h3>
+    <div className="ve-card rounded-2xl p-4">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Sentiment Trend</h3>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data || []}>
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid stroke="#cbd5e1" strokeDasharray="3 3" />
           <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={24} />
           <YAxis domain={[-1, 1]} />
           <Tooltip />
@@ -38,11 +38,11 @@ export function PcaScatterChart({ data }) {
   }));
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">PCA Visualization (2D)</h3>
+    <div className="ve-card rounded-2xl p-4">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">PCA Visualization (2D)</h3>
       <ResponsiveContainer width="100%" height={260}>
         <ScatterChart>
-          <CartesianGrid />
+          <CartesianGrid stroke="#cbd5e1" />
           <XAxis type="number" dataKey="x" name="PC1" />
           <YAxis type="number" dataKey="y" name="PC2" />
           <Tooltip cursor={{ strokeDasharray: "3 3" }} />
@@ -55,11 +55,11 @@ export function PcaScatterChart({ data }) {
 
 export function ClusterChart({ data }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">Cluster Visualization</h3>
+    <div className="ve-card rounded-2xl p-4">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Cluster Visualization</h3>
       <ResponsiveContainer width="100%" height={260}>
         <ScatterChart>
-          <CartesianGrid />
+          <CartesianGrid stroke="#cbd5e1" />
           <XAxis type="number" dataKey="x" name="PC1" />
           <YAxis type="number" dataKey="y" name="PC2" />
           <Tooltip />
@@ -72,11 +72,11 @@ export function ClusterChart({ data }) {
 
 export function ModelComparisonChart({ data }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">Model Comparison</h3>
+    <div className="ve-card rounded-2xl p-4">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Model Comparison</h3>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={data || []}>
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid stroke="#cbd5e1" strokeDasharray="3 3" />
           <XAxis dataKey="model" />
           <YAxis />
           <Tooltip />
@@ -96,11 +96,11 @@ export function ForecastChart({ history, forecast }) {
   ];
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">30-Day Forecast</h3>
+    <div className="ve-card rounded-2xl p-4">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">30-Day Forecast</h3>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={merged}>
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid stroke="#cbd5e1" strokeDasharray="3 3" />
           <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={24} />
           <YAxis domain={[-1, 1]} />
           <Tooltip />
@@ -114,15 +114,15 @@ export function ForecastChart({ history, forecast }) {
 
 export function FeatureImportanceChart({ data }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">Random Forest Feature Importance</h3>
+    <div className="ve-card rounded-2xl p-4">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Random Forest Feature Importance</h3>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={data || []} layout="vertical" margin={{ left: 40 }}>
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid stroke="#cbd5e1" strokeDasharray="3 3" />
           <XAxis type="number" />
           <YAxis dataKey="feature" type="category" width={120} tick={{ fontSize: 11 }} />
           <Tooltip />
-          <Bar dataKey="importance" fill="#7c3aed" />
+          <Bar dataKey="importance" fill="#ea580c" />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -133,16 +133,16 @@ export function CorrelationHeatmap({ matrix }) {
   const rows = Object.keys(matrix || {});
   if (!rows.length) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-        <h3 className="font-semibold text-slate-800 mb-3">Correlation Heatmap</h3>
+      <div className="ve-card rounded-2xl p-4">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Correlation Heatmap</h3>
         <p className="text-sm text-slate-500">No correlation matrix available.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">Correlation Heatmap</h3>
+    <div className="ve-card rounded-2xl p-4">
+      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">Correlation Heatmap</h3>
       <div className="overflow-x-auto">
         <div
           className="grid gap-1 bg-slate-100 p-2 rounded"

@@ -43,12 +43,15 @@ class AIAdviceService:
         self.provider = "none"
         self.ai_provider = "gemini"
         self.supported_providers = {"gemini", "huggingface", "ollama"}
-        self.primary_model = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
-        self.fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-1.5-flash")
+        self.primary_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        self.fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash-lite")
         self.hf_model = os.environ.get("HF_MODEL", "google/flan-t5-large")
         self.hf_api_base = os.environ.get("HF_API_BASE", "https://api-inference.huggingface.co/models")
         self.ollama_model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+        self.ollama_fallback_model = os.environ.get("OLLAMA_FALLBACK_MODEL", "llama3.2:3b")
         self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+        self.ollama_timeout_seconds = 180
+        self.ollama_metadata_timeout_seconds = 12
         self._api_key_source = "missing"
         self.last_error = None
 
@@ -68,7 +71,13 @@ class AIAdviceService:
         self.hf_model = os.environ.get("HF_MODEL", self.hf_model)
         self.hf_api_base = os.environ.get("HF_API_BASE", self.hf_api_base)
         self.ollama_model = os.environ.get("OLLAMA_MODEL", self.ollama_model)
+        self.ollama_fallback_model = os.environ.get("OLLAMA_FALLBACK_MODEL", self.ollama_fallback_model)
         self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", self.ollama_base_url)
+        self.ollama_timeout_seconds = self._read_int_env("OLLAMA_TIMEOUT_SECONDS", self.ollama_timeout_seconds)
+        self.ollama_metadata_timeout_seconds = self._read_int_env(
+            "OLLAMA_METADATA_TIMEOUT_SECONDS",
+            self.ollama_metadata_timeout_seconds,
+        )
 
         if self.ai_provider == "ollama":
             self._api_key_source = "none-local"
@@ -113,6 +122,26 @@ class AIAdviceService:
             self.provider = "none"
             self.last_error = str(e)
 
+    @staticmethod
+    def _short_error_text(error_text: str, limit: int = 220) -> str:
+        if not isinstance(error_text, str):
+            return ""
+        normalized = " ".join(error_text.replace("\r", " ").replace("\n", " ").split())
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[:limit - 3]}..."
+
+    @staticmethod
+    def _read_int_env(name: str, default: int) -> int:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        try:
+            value = int(raw)
+            return value if value > 0 else default
+        except Exception:
+            return default
+
     def _hf_headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {os.environ.get('HF_API_TOKEN', '')}",
@@ -147,20 +176,66 @@ class AIAdviceService:
             return data.strip()
         return ""
 
-    def _call_ollama(self, prompt: str) -> str:
+    def _ollama_model_candidates(self) -> List[str]:
+        env_candidates = os.environ.get("OLLAMA_MODEL_CANDIDATES", "")
+        configured = [m.strip() for m in env_candidates.split(",") if m.strip()]
+        available = self._ollama_available_models()
+        candidates = [self.ollama_model, self.ollama_fallback_model, "llama3.2:3b"] + configured + available
+        unique_models: List[str] = []
+        for model_name in candidates:
+            if model_name and model_name not in unique_models:
+                unique_models.append(model_name)
+        return unique_models
+
+    def _ollama_available_models(self) -> List[str]:
+        try:
+            response = requests.get(
+                f"{self.ollama_base_url.rstrip('/')}/api/tags",
+                timeout=self.ollama_metadata_timeout_seconds,
+            )
+            if response.status_code >= 400:
+                return []
+            payload = response.json()
+            models = payload.get("models", []) if isinstance(payload, dict) else []
+            names: List[str] = []
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name")
+                if isinstance(name, str) and name.strip():
+                    names.append(name.strip())
+            return names
+        except Exception:
+            return []
+
+    def _call_ollama(self, prompt: str, model_name: str) -> str:
         response = requests.post(
             f"{self.ollama_base_url.rstrip('/')}/api/generate",
             json={
-                "model": self.ollama_model,
+                "model": model_name,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
                     "temperature": 0.4,
                 },
             },
-            timeout=90,
+            timeout=self.ollama_timeout_seconds,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                payload = response.json()
+                if isinstance(payload, dict) and payload.get("error"):
+                    detail = str(payload.get("error"))
+            except Exception:
+                try:
+                    detail = (response.text or "").strip()
+                except Exception:
+                    detail = ""
+            message = f"Ollama HTTP {response.status_code}"
+            if detail:
+                message = f"{message}: {detail}"
+            raise RuntimeError(message)
         data = response.json()
         if isinstance(data, dict) and data.get("error"):
             raise RuntimeError(str(data.get("error")))
@@ -170,7 +245,12 @@ class AIAdviceService:
     def _model_candidates(self) -> List[str]:
         env_candidates = os.environ.get("GEMINI_MODEL_CANDIDATES", "")
         configured = [m.strip() for m in env_candidates.split(",") if m.strip()]
-        candidates = [self.primary_model, self.fallback_model, "gemini-2.0-flash", "gemini-1.5-flash"] + configured
+        candidates = [
+            self.primary_model,
+            self.fallback_model,
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+        ] + configured
         unique_models: List[str] = []
         for model_name in candidates:
             if model_name and model_name not in unique_models:
@@ -224,7 +304,9 @@ class AIAdviceService:
         )
 
     def _call_failure_response(self) -> str:
-        error_text = (self.last_error or "").lower()
+        raw_error = self.last_error or ""
+        error_text = raw_error.lower()
+        short_error = self._short_error_text(raw_error)
         if self.ai_provider == "huggingface":
             provider_name = "Hugging Face"
         elif self.ai_provider == "ollama":
@@ -238,6 +320,22 @@ class AIAdviceService:
                 "- Enable billing or increase quota for this API key/project.\n"
                 "- Retry after cooldown or switch to a key/project with active quota."
             )
+        if (
+            "api key not valid" in error_text
+            or "invalid api key" in error_text
+            or "permission denied" in error_text
+            or "unauthenticated" in error_text
+            or "403" in error_text
+            or "401" in error_text
+        ):
+            lines = [
+                f"- {provider_name} request failed: authentication/permission issue.",
+                "- Verify key, enabled API access, and project restrictions.",
+                "- API results are still valid for analysis, forecast, and simulation.",
+            ]
+            if short_error:
+                lines.append(f"- Provider detail: {short_error}")
+            return "\n".join(lines)
 
         if self.ai_provider == "ollama" and ("connection refused" in error_text or "max retries exceeded" in error_text):
             return (
@@ -245,18 +343,52 @@ class AIAdviceService:
                 "- Start Ollama and ensure the model is pulled (for example: `ollama pull llama3.1:8b`).\n"
                 "- API results are still valid for analysis, forecast, and simulation."
             )
-        if "winerror 10013" in error_text or "failed to establish a new connection" in error_text:
+        if self.ai_provider == "ollama" and (
+            ("model" in error_text and "not found" in error_text)
+            or ("ollama http 404" in error_text and "not found" in error_text)
+        ):
+            available = self._ollama_available_models()
+            if available:
+                return (
+                    "- Ollama model not found for the configured name.\n"
+                    f"- Available local models: {', '.join(available[:6])}.\n"
+                    f"- Set `OLLAMA_MODEL` to one of these or run `ollama pull {self.ollama_model}`."
+                )
             return (
-                f"- {provider_name} request failed: network access is blocked from this machine.\n"
-                "- Allow outbound HTTPS (443) for Python/terminal in firewall, proxy, or antivirus.\n"
-                "- API results are still valid for analysis, forecast, and simulation."
+                "- Ollama model not found locally.\n"
+                f"- Pull a model first, for example: `ollama pull {self.ollama_model}` (or `ollama pull llama3.2:3b`).\n"
+                "- After pull completes, retry strategy/simulation requests."
             )
+        if self.ai_provider == "ollama" and "ollama http 404" in error_text:
+            return (
+                "- Ollama endpoint returned HTTP 404 for generation.\n"
+                "- Verify `OLLAMA_BASE_URL` points to a real Ollama server and that `/api/generate` is available.\n"
+                "- If using a proxy/server wrapper, check its supported API paths."
+            )
+        if self.ai_provider == "ollama" and ("read timed out" in error_text or "readtimeout" in error_text):
+            return (
+                "- Ollama request timed out before generation completed.\n"
+                f"- Increase `OLLAMA_TIMEOUT_SECONDS` (current: {self.ollama_timeout_seconds}) or switch to a lighter model like `llama3.2:3b`.\n"
+                "- Pull the selected model and keep Ollama running; API results remain valid for analysis, forecast, and simulation."
+            )
+        if "winerror 10013" in error_text or "failed to establish a new connection" in error_text:
+            lines = [
+                f"- {provider_name} request failed: network access is blocked from this machine.",
+                "- Allow outbound HTTPS (443) for Python/terminal in firewall, proxy, or antivirus.",
+                "- API results are still valid for analysis, forecast, and simulation.",
+            ]
+            if short_error:
+                lines.append(f"- Provider detail: {short_error}")
+            return "\n".join(lines)
 
-        return (
-            "- AI provider is configured but request failed.\n"
-            "- Check backend terminal logs for provider error details (invalid key, API restrictions, or network).\n"
-            "- API results are still valid for analysis, forecast, and simulation."
-        )
+        lines = [
+            "- AI provider is configured but request failed.",
+            "- Check backend terminal logs for provider error details (invalid key, API restrictions, or network).",
+            "- API results are still valid for analysis, forecast, and simulation.",
+        ]
+        if short_error:
+            lines.append(f"- Provider detail: {short_error}")
+        return "\n".join(lines)
 
     def _is_provider_failure(self, text: str) -> bool:
         if not isinstance(text, str):
@@ -341,10 +473,21 @@ class AIAdviceService:
         try:
             if self.ai_provider == "ollama":
                 try:
-                    text = self._call_ollama(prompt)
-                    return text if text else self._call_failure_response()
+                    for model_name in self._ollama_model_candidates():
+                        try:
+                            text = self._call_ollama(prompt, model_name=model_name)
+                            if text:
+                                if model_name != self.ollama_model:
+                                    logger.info("Ollama fallback model used: %s", model_name)
+                                return text
+                        except Exception as model_error:
+                            self.last_error = str(model_error)
+                            logger.warning("Ollama request failed for model '%s': %s", model_name, model_error)
+                            continue
+                    return self._call_failure_response()
                 except Exception as provider_error:
                     self.last_error = str(provider_error)
+                    logger.exception("Ollama request failed: %s", provider_error)
                     return self._call_failure_response()
 
             if self.ai_provider == "huggingface":
@@ -353,6 +496,7 @@ class AIAdviceService:
                     return text if text else self._call_failure_response()
                 except Exception as provider_error:
                     self.last_error = str(provider_error)
+                    logger.exception("Hugging Face request failed: %s", provider_error)
                     return self._call_failure_response()
 
             if self.client is not None:
@@ -375,6 +519,7 @@ class AIAdviceService:
                             return text
                     except Exception as model_error:
                         self.last_error = str(model_error)
+                        logger.warning("Gemini request failed for model '%s': %s", model_name, model_error)
                         continue
                 return self._call_failure_response()
 
@@ -388,6 +533,7 @@ class AIAdviceService:
                             return text
                     except Exception as model_error:
                         self.last_error = str(model_error)
+                        logger.warning("Gemini legacy request failed for model '%s': %s", model_name, model_error)
                         continue
                 return self._call_failure_response()
 
@@ -406,7 +552,9 @@ class AIAdviceService:
             "fallback_model": self.fallback_model,
             "hf_model": self.hf_model if self.ai_provider == "huggingface" else None,
             "ollama_model": self.ollama_model if self.ai_provider == "ollama" else None,
+            "ollama_fallback_model": self.ollama_fallback_model if self.ai_provider == "ollama" else None,
             "ollama_base_url": self.ollama_base_url if self.ai_provider == "ollama" else None,
+            "ollama_timeout_seconds": self.ollama_timeout_seconds if self.ai_provider == "ollama" else None,
             "api_key_source": self._api_key_source,
             "has_google_genai_sdk": genai_client is not None,
             "has_google_generativeai_sdk": genai is not None,

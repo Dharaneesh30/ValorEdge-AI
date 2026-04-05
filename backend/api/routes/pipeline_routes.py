@@ -186,6 +186,7 @@ def get_strategy_view():
         "Provide targeted recommendations, risks, and quick wins."
     )
     strategy_text = AI_SERVICE.generate_text(prompt)
+    provider_status = AI_SERVICE.status()
 
     recommendations = [
         "Improve customer support response speed and publish weekly resolution metrics.",
@@ -211,6 +212,7 @@ def get_strategy_view():
         },
         "risk_alerts": risk_alerts,
         "genai_strategy_insights": strategy_text,
+        "genai_provider_status": provider_status,
     }
 
 

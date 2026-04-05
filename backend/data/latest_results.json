@@ -1,9 +1,9 @@
 {
   "eda": {
     "plots": {
-      "sentiment_distribution": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College Study materials\\ValorEdge-AI\\backend\\data\\plots\\sentiment_distribution.png",
-      "sentiment_trend": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College Study materials\\ValorEdge-AI\\backend\\data\\plots\\sentiment_trend.png",
-      "word_frequency": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College Study materials\\ValorEdge-AI\\backend\\data\\plots\\word_frequency.png"
+      "sentiment_distribution": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College\\College Study materials\\ValorEdge-AI\\backend\\data\\plots\\sentiment_distribution.png",
+      "sentiment_trend": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College\\College Study materials\\ValorEdge-AI\\backend\\data\\plots\\sentiment_trend.png",
+      "word_frequency": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College\\College Study materials\\ValorEdge-AI\\backend\\data\\plots\\word_frequency.png"
     },
     "statistics": {
       "mean": {
@@ -31689,20 +31689,22 @@
     "final_reputation_score": 0.5571
   },
   "genai_insights": {
-    "insight_text": "Current reputation score is 0.557, with a improving near-term trajectory. Top cluster drivers: showing strong, strong, volatile, showing volatile, reputation score, score. Best-performing predictive model is random_forest based on RMSE. Recommended actions: improve response quality on negative themes, align communication with top positive peer topics, and monitor weekly sentiment/forecast shifts to trigger rapid mitigation.",
+    "insight_text": "**Current Reputation Status:**\n\nThe current reputation score is 0.5571, indicating a generally positive but volatile reputation landscape. The top cluster keywords suggest that stakeholders are perceiving the company's performance as strong and showing volatility.\n\n**30-Day Outlook:**\n\nBased on the forecast sample, we can expect the reputation score to continue trending upwards over the next 30 days. The predicted values indicate an increase in the reputation score, with a possible peak around December 5th (0.5699625462073814) before stabilizing or slightly decreasing thereafter.\n\n**Business Impact:**\n\nThe current and projected reputation scores suggest that stakeholders are generally satisfied with the company's performance, but volatility may be causing some concern. This could impact business outcomes in several ways:\n\n* Positive sentiment towards the company's products/services may lead to increased sales and revenue.\n* Volatility in reputation score may affect investor confidence, leading to fluctuations in stock prices.\n* Stakeholders' concerns about volatility may influence future investment decisions or partnerships.\n\n**5 Actionable Recommendations:**\n\n1.  **Communicate Performance Transparency**: Regularly update stakeholders on the company's performance metrics to maintain trust and demonstrate transparency.\n2.  **Invest in Reputation Management Tools**: Implement tools that can help monitor and analyze reputation data, enabling more informed decision-making.\n3.  **Address Volatility Concerns**: Develop strategies to mitigate volatility, such as diversifying revenue streams or implementing risk management measures.\n4.  **Enhance Stakeholder Engagement**: Foster open communication channels with stakeholders to address concerns and build trust in the company's ability to manage volatility.\n5.  **Monitor Industry Trends**: Stay informed about industry developments and trends that may impact reputation, allowing for proactive adjustments to the company's strategy.\n\nBy implementing these recommendations, the company can work towards stabilizing its reputation score while maintaining a strong performance narrative.",
     "provider_status": {
       "provider_ready": true,
-      "provider": "google-generativeai",
-      "ai_provider": "gemini",
+      "provider": "ollama-local",
+      "ai_provider": "ollama",
       "primary_model": "gemini-2.0-flash",
-      "fallback_model": "gemini-2.0-flash",
+      "fallback_model": "gemini-2.0-flash-lite",
       "hf_model": null,
-      "ollama_model": null,
-      "ollama_base_url": null,
-      "api_key_source": "GEMINI_API_KEY",
-      "has_google_genai_sdk": false,
-      "has_google_generativeai_sdk": true,
-      "last_error": "404 models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods."
+      "ollama_model": "llama3.1:8b",
+      "ollama_fallback_model": "llama3.2:3b",
+      "ollama_base_url": "http://127.0.0.1:11434",
+      "ollama_timeout_seconds": 180,
+      "api_key_source": "none-local",
+      "has_google_genai_sdk": true,
+      "has_google_generativeai_sdk": false,
+      "last_error": "Ollama HTTP 500: llama runner process has terminated: %!w(<nil>)"
     }
   },
   "metadata": {
@@ -31729,7 +31731,7 @@
       "kmeans_cluster",
       "hierarchical_cluster"
     ],
-    "upload_path": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College Study materials\\ValorEdge-AI\\backend\\uploads\\dataset.csv",
-    "processed_path": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College Study materials\\ValorEdge-AI\\backend\\data\\processed_dataset.csv"
+    "upload_path": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College\\College Study materials\\ValorEdge-AI\\backend\\uploads\\dataset.csv",
+    "processed_path": "C:\\Users\\dharaneesh n\\OneDrive\\Desktop\\College\\College Study materials\\ValorEdge-AI\\backend\\data\\processed_dataset.csv"
   }
 }

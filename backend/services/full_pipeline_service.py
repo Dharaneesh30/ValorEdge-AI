@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -47,6 +48,10 @@ class FullPipelineService:
         self.preprocessor = TextPreprocessor()
         self.sentiment_engine = SentimentEngine()
         self.ai_service = AIAdviceService()
+        self._assign_cache_path: str | None = None
+        self._assign_cache_vectorizer = None
+        self._assign_cache_pca_model = None
+        self._assign_cache_kmeans_model = None
 
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -94,11 +99,26 @@ class FullPipelineService:
             "and monitor weekly sentiment/forecast shifts to trigger rapid mitigation."
         )
 
-    def run(self, uploaded_path: Path) -> Dict[str, Any]:
+    def run(
+        self,
+        uploaded_path: Path,
+        *,
+        fast_mode: bool = False,
+        fast_max_rows: int = 3000,
+    ) -> Dict[str, Any]:
         logger.info("Pipeline started for upload: %s", uploaded_path)
 
         raw_df = pd.read_csv(uploaded_path)
         logger.info("Loaded raw dataset with %s rows", len(raw_df))
+        rows_original = int(len(raw_df))
+
+        if fast_mode and len(raw_df) > fast_max_rows:
+            raw_df = raw_df.head(fast_max_rows).copy()
+            logger.info(
+                "Fast mode enabled: limited dataset from %s to %s rows",
+                rows_original,
+                len(raw_df),
+            )
 
         cleaned_df = self.preprocessor.preprocess(raw_df)
         logger.info("Preprocessing complete. Rows after cleaning: %s", len(cleaned_df))
@@ -106,7 +126,8 @@ class FullPipelineService:
         cleaned_df = self.sentiment_engine.batch_analyze(cleaned_df, "clean_text")
         logger.info("Sentiment scoring complete")
 
-        vectorizer = TfidfVectorizer(max_features=400, ngram_range=(1, 2))
+        tfidf_max_features = 250 if fast_mode else 400
+        vectorizer = TfidfVectorizer(max_features=tfidf_max_features, ngram_range=(1, 2))
         tfidf_matrix = vectorizer.fit_transform(cleaned_df["clean_text"])
         feature_names = vectorizer.get_feature_names_out().tolist()
         logger.info("TF-IDF complete with %s features", len(feature_names))
@@ -138,13 +159,14 @@ class FullPipelineService:
         model_results = ModelComparison(model_features, target).run()
         logger.info("Model training and evaluation complete")
 
-        forecast_results = ReputationForecaster(cleaned_df).forecast(days=30)
+        forecast_days = 14 if fast_mode else 30
+        forecast_results = ReputationForecaster(cleaned_df).forecast(days=forecast_days)
         logger.info("Forecasting complete")
 
         reputation = ReputationScoreEngine(cleaned_df).compute()
         logger.info("Reputation score computation complete")
 
-        eda = EDAModule(cleaned_df, self.plots_dir).run()
+        eda = EDAModule(cleaned_df, self.plots_dir).run(include_plots=not fast_mode)
         logger.info("EDA complete")
 
         # Build sentiment API payload.
@@ -167,22 +189,30 @@ class FullPipelineService:
         }
 
         # GenAI summary from outputs.
-        prompt = (
-            "You are a corporate reputation analyst. "
-            "Summarize current reputation status, 30-day outlook, business impact, and 5 actionable recommendations. "
-            f"Reputation score: {reputation['final_reputation_score']}. "
-            f"Top cluster keywords: {cluster_result['interpretation']['cluster_keywords']}. "
-            f"Model comparison: {model_results['model_comparison']}. "
-            f"Forecast sample: {forecast_results['forecast'][:5]}."
-        )
-        genai_text = self.ai_service.generate_text(prompt)
-        if self.ai_service._is_provider_failure(genai_text):
+        if fast_mode:
             genai_text = self._local_insight_fallback(
                 reputation_score=float(reputation["final_reputation_score"]),
                 cluster_keywords=cluster_result["interpretation"]["cluster_keywords"],
                 model_rows=model_results["model_comparison"],
                 forecast_rows=forecast_results["forecast"],
             )
+        else:
+            prompt = (
+                "You are a corporate reputation analyst. "
+                "Summarize current reputation status, 30-day outlook, business impact, and 5 actionable recommendations. "
+                f"Reputation score: {reputation['final_reputation_score']}. "
+                f"Top cluster keywords: {cluster_result['interpretation']['cluster_keywords']}. "
+                f"Model comparison: {model_results['model_comparison']}. "
+                f"Forecast sample: {forecast_results['forecast'][:5]}."
+            )
+            genai_text = self.ai_service.generate_text(prompt)
+            if self.ai_service._is_provider_failure(genai_text):
+                genai_text = self._local_insight_fallback(
+                    reputation_score=float(reputation["final_reputation_score"]),
+                    cluster_keywords=cluster_result["interpretation"]["cluster_keywords"],
+                    model_rows=model_results["model_comparison"],
+                    forecast_rows=forecast_results["forecast"],
+                )
         genai_payload = {
             "insight_text": genai_text,
             "provider_status": self.ai_service.status(),
@@ -190,6 +220,11 @@ class FullPipelineService:
 
         processed_path = self.data_dir / "processed_dataset.csv"
         TextPreprocessor.save_processed(cleaned_df, processed_path)
+        # Cache artifacts for fast cluster assignment during scenario simulation.
+        self._assign_cache_path = str(processed_path)
+        self._assign_cache_vectorizer = vectorizer
+        self._assign_cache_pca_model = pca_model
+        self._assign_cache_kmeans_model = cluster_result.get("artifacts", {}).get("kmeans_model")
 
         full_payload: Dict[str, Any] = {
             "eda": eda,
@@ -217,6 +252,9 @@ class FullPipelineService:
             "genai_insights": genai_payload,
             "metadata": {
                 "rows_processed": int(len(cleaned_df)),
+                "rows_original": rows_original,
+                "fast_mode": bool(fast_mode),
+                "fast_max_rows": int(fast_max_rows),
                 "columns": cleaned_df.columns.tolist(),
                 "upload_path": str(uploaded_path),
                 "processed_path": str(processed_path),
@@ -247,18 +285,34 @@ class FullPipelineService:
         if not snapshot.processed_path or not snapshot.pca or not snapshot.clusters:
             raise ValueError("Pipeline has not been run yet.")
 
-        df = pd.read_csv(snapshot.processed_path)
-        vectorizer = TfidfVectorizer(max_features=400, ngram_range=(1, 2))
-        tfidf_matrix = vectorizer.fit_transform(df["clean_text"])
-        pca_model = DimensionalityReducer(tfidf_matrix, vectorizer.get_feature_names_out().tolist()).run(n_components=2)["artifacts"]["pca_model"]
+        vectorizer = self._assign_cache_vectorizer
+        pca_model = self._assign_cache_pca_model
+        kmeans = self._assign_cache_kmeans_model
+        cache_valid = (
+            self._assign_cache_path is not None
+            and str(snapshot.processed_path) == self._assign_cache_path
+            and vectorizer is not None
+            and pca_model is not None
+            and kmeans is not None
+        )
 
-        # Rebuild kmeans model from saved labels/points so endpoint is deterministic.
-        kmeans = ClusteringModule(
-            pca_model.transform(tfidf_matrix.toarray()),
-            tfidf_matrix,
-            vectorizer.get_feature_names_out().tolist(),
-            n_clusters=len(set(snapshot.clusters.get("kmeans_labels", [0, 1]))),
-        ).run()["artifacts"]["kmeans_model"]
+        if not cache_valid:
+            df = pd.read_csv(snapshot.processed_path)
+            vectorizer = TfidfVectorizer(max_features=400, ngram_range=(1, 2))
+            tfidf_matrix = vectorizer.fit_transform(df["clean_text"])
+            pca_model = DimensionalityReducer(tfidf_matrix, vectorizer.get_feature_names_out().tolist()).run(n_components=2)["artifacts"]["pca_model"]
+
+            # Rebuild kmeans model from saved labels/points so endpoint is deterministic.
+            kmeans = ClusteringModule(
+                pca_model.transform(tfidf_matrix.toarray()),
+                tfidf_matrix,
+                vectorizer.get_feature_names_out().tolist(),
+                n_clusters=len(set(snapshot.clusters.get("kmeans_labels", [0, 1]))),
+            ).run()["artifacts"]["kmeans_model"]
+            self._assign_cache_path = str(snapshot.processed_path)
+            self._assign_cache_vectorizer = vectorizer
+            self._assign_cache_pca_model = pca_model
+            self._assign_cache_kmeans_model = kmeans
 
         clean_text = self.preprocessor.clean_text(text)
         cluster_id = ClusteringModule.assign_new_text_cluster(clean_text, vectorizer, pca_model, kmeans)
@@ -298,15 +352,37 @@ class FullPipelineService:
         predicted_reputation = (0.55 * sentiment_component) + (0.25 * trend_component) + (0.20 * cluster_component)
         predicted_reputation = max(0.0, min(1.0, predicted_reputation + (slider_effect / 100.0)))
 
-        prompt = (
-            "You are a corporate reputation advisor. "
-            f"Scenario text: {text}. "
-            f"Assigned cluster: {cluster_result['assigned_cluster']} with keywords {cluster_result['cluster_keywords']}. "
-            f"Scenario sentiment: {sentiment_score:.3f}. "
-            f"Predicted reputation score: {predicted_reputation:.3f}. "
-            "Provide concise business impact and 3 actions."
-        )
-        insight = self.ai_service.generate_text(prompt)
+        fast_scenario_mode = str(os.environ.get("FAST_SCENARIO_MODE", "false")).strip().lower() not in {"0", "false", "no"}
+        insight_source = "local-fast"
+        if fast_scenario_mode:
+            impact = predicted_reputation - base_reputation
+            direction = "improves" if impact > 0 else "declines" if impact < 0 else "stays neutral"
+            keywords = ", ".join((cluster_result.get("cluster_keywords") or [])[:5]) or "cluster themes"
+            insight = (
+                f"- Scenario {direction} expected reputation by {impact:+.3f} (from {base_reputation:.3f} to {predicted_reputation:.3f}).\n"
+                f"- Assigned cluster {cluster_result['assigned_cluster']} suggests key themes: {keywords}.\n"
+                "- Prioritize one high-impact action now, monitor sentiment weekly, and iterate with another simulation."
+            )
+        else:
+            prompt = (
+                "You are a corporate reputation advisor. "
+                f"Scenario text: {text}. "
+                f"Assigned cluster: {cluster_result['assigned_cluster']} with keywords {cluster_result['cluster_keywords']}. "
+                f"Scenario sentiment: {sentiment_score:.3f}. "
+                f"Predicted reputation score: {predicted_reputation:.3f}. "
+                "Provide concise business impact and 3 actions."
+            )
+            insight = self.ai_service.generate_text(prompt)
+            insight_source = "provider"
+            if self.ai_service._is_provider_failure(insight):
+                impact = predicted_reputation - base_reputation
+                keywords = ", ".join((cluster_result.get("cluster_keywords") or [])[:5]) or "cluster themes"
+                insight = (
+                    f"- Predicted score shift: {impact:+.3f} from baseline {base_reputation:.3f}.\n"
+                    f"- Cluster {cluster_result['assigned_cluster']} key themes: {keywords}.\n"
+                    "- Provider fallback used; retry once provider connectivity is healthy."
+                )
+                insight_source = "fallback"
 
         return {
             "base_reputation_score": base_reputation,
@@ -316,4 +392,6 @@ class FullPipelineService:
             "forecast_reference": snapshot.forecast.get("forecast", [])[:7],
             "predicted_reputation_score": round(float(predicted_reputation), 4),
             "ai_insight": insight,
+            "scenario_fast_mode": fast_scenario_mode,
+            "scenario_insight_source": insight_source,
         }

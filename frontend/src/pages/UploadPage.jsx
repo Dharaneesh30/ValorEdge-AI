@@ -1,12 +1,20 @@
 import { useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
+import { useCompanyComparison } from "../context/CompanyContext";
+import CompanyPageInsights from "../components/CompanyPageInsights";
 
 function UploadPage() {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const {
+    selectedCompany,
+    setSelectedCompany,
+    refreshCompanies,
+    refreshBenchmark,
+  } = useCompanyComparison();
 
   const onUpload = async () => {
     if (!file) {
@@ -20,14 +28,26 @@ function UploadPage() {
       setMessage("");
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("include_preloaded_competitors", "true");
+      formData.append("treat_upload_as_my_company", "true");
 
       const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
+      const inferredCompany = response?.data?.metadata?.my_company;
+      if (inferredCompany) {
+        setSelectedCompany(inferredCompany);
+      }
+      const fastMode = Boolean(response?.data?.metadata?.fast_mode);
+      const rowsOriginal = response?.data?.metadata?.rows_original;
+      const rowsProcessed = response?.data?.metadata?.rows_processed;
+      const wasLimited = Number(rowsOriginal || 0) > Number(rowsProcessed || 0);
 
       setMessage(
-        `Pipeline completed. Processed ${response.data?.metadata?.rows_processed ?? 0} rows. Best model: ${response.data?.best_model ?? "n/a"}.`
+        `Pipeline completed. Processed ${rowsProcessed ?? 0} rows${wasLimited ? ` (from ${rowsOriginal})` : ""}. Best model: ${response.data?.best_model ?? "n/a"}. Selected company: ${inferredCompany || "N/A"}${fastMode ? ". Fast mode enabled." : ""}.`
       );
+      await refreshCompanies();
+      await refreshBenchmark();
     } catch (err) {
       setError(err?.response?.data?.detail || err.message || "Upload failed");
     } finally {
@@ -38,10 +58,12 @@ function UploadPage() {
   return (
     <div className="ve-page ve-reveal">
       <section className="ve-hero">
-        <p className="ve-pill">Pipeline Entry</p>
-        <h1 className="ve-title">Upload Dataset</h1>
-        <p className="ve-subtitle">Add a CSV to trigger analysis, forecasts, and strategy generation in one run.</p>
+        <p className="ve-pill">My Company vs Others</p>
+        <h1 className="ve-title">Upload and Compare</h1>
+        <p className="ve-subtitle">Upload your dataset, run the pipeline, then use comparison-guided insights across all pages.</p>
       </section>
+
+      <CompanyPageInsights page="upload" />
 
       <div className="ve-card rounded-2xl p-6 sm:p-7">
         <p className="mt-2 text-sm text-slate-700">
@@ -58,29 +80,25 @@ function UploadPage() {
               className="hidden"
             />
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <label
-                htmlFor="csv-upload-input"
-                className="ve-btn-primary inline-flex cursor-pointer items-center justify-center"
-              >
+              <label htmlFor="csv-upload-input" className="ve-btn-primary inline-flex cursor-pointer items-center justify-center">
                 Browse CSV
               </label>
-              <p className="text-xs text-slate-600">
-                {file ? `Selected: ${file.name}` : "No file selected"}
-              </p>
+              <p className="text-xs text-slate-600">{file ? `Selected: ${file.name}` : "No file selected"}</p>
             </div>
           </div>
+
+          <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-900">
+            Preloaded competitor dataset is merged automatically to run comparison.
+          </div>
+
           {file && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
               Selected file: <span className="font-semibold">{file.name}</span>
             </div>
           )}
 
-          <button
-            onClick={onUpload}
-            disabled={loading}
-            className="ve-btn-primary"
-          >
-            {loading ? "Running Full Pipeline..." : "Upload & Run Pipeline"}
+          <button onClick={onUpload} disabled={loading} className="ve-btn-primary">
+            {loading ? "Uploading..." : "Upload"}
           </button>
         </div>
 

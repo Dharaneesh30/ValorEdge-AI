@@ -3,7 +3,7 @@ import axios from "axios";
 import useApi from "../hooks/useApi";
 import API_BASE_URL from "../config/api";
 import GeneralAIInsightPanel from "../components/GeneralAIInsightPanel";
-import CompanyBenchmarkPanel from "../components/CompanyBenchmarkPanel";
+import CompanyPageInsights from "../components/CompanyPageInsights";
 
 function StrategyPage() {
   const { data, loading, error } = useApi("/strategy");
@@ -42,9 +42,9 @@ function StrategyPage() {
   return (
     <div className="ve-page ve-reveal">
       <section className="ve-hero">
-        <p className="ve-pill">Actions</p>
-        <h1 className="ve-title">Strategy Studio</h1>
-        <p className="ve-subtitle">Turn analytics into targeted recommendations and test what-if outcomes before acting.</p>
+        <p className="ve-pill">My Company vs Others</p>
+        <h1 className="ve-title">Competitive Strategy Studio</h1>
+        <p className="ve-subtitle">Convert company-vs-peer comparison into actionable improvements and what-if plans.</p>
       </section>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -62,7 +62,7 @@ function StrategyPage() {
         </div>
       </section>
 
-      <CompanyBenchmarkPanel />
+      <CompanyPageInsights page="strategy" />
 
       <div className="ve-card rounded-2xl p-5 sm:p-6">
         <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Strategy & Recommendations</h2>

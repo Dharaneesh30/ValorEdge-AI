@@ -7,7 +7,7 @@ import {
   PcaScatterChart,
   SentimentTrendChart,
 } from "../components/Charts";
-import CompanyBenchmarkPanel from "../components/CompanyBenchmarkPanel";
+import CompanyPageInsights from "../components/CompanyPageInsights";
 
 function GraphsPage() {
   const dashboard = useApi("/dashboard");
@@ -31,12 +31,14 @@ function GraphsPage() {
   return (
     <div className="ve-page ve-reveal">
       <section className="ve-hero">
-        <p className="ve-pill">Charts</p>
-        <h1 className="ve-title">Graph Workspace</h1>
+        <p className="ve-pill">My Company vs Others</p>
+        <h1 className="ve-title">Competitive Graph Workspace</h1>
         <p className="ve-subtitle">
-          Smooth-scroll navigation below jumps to each chart block so this behaves like a live analytics cockpit.
+          Compare your company against peers visually across sentiment, forecast, model quality, and structure.
         </p>
       </section>
+
+      <CompanyPageInsights page="graphs" />
 
       <section className="ve-card rounded-2xl p-5">
         <div className="mt-4 flex flex-wrap gap-2">
@@ -69,11 +71,6 @@ function GraphsPage() {
       <section id="correlation" className="ve-section">
         <CorrelationHeatmap matrix={analyticsData?.correlation_matrix || {}} />
       </section>
-
-      <CompanyBenchmarkPanel
-        title="Competitive Benchmark Insights"
-        description="Run one-company-vs-all comparison from the graph workspace and use peer gaps to guide improvements."
-      />
     </div>
   );
 }

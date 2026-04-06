@@ -1,6 +1,6 @@
 import useApi from "../hooks/useApi";
 import { CorrelationHeatmap, FeatureImportanceChart, PcaScatterChart } from "../components/Charts";
-import CompanyBenchmarkPanel from "../components/CompanyBenchmarkPanel";
+import CompanyPageInsights from "../components/CompanyPageInsights";
 
 function AIAnalyticsPage() {
   const { data, loading, error } = useApi("/analytics");
@@ -13,10 +13,12 @@ function AIAnalyticsPage() {
   return (
     <div className="ve-page ve-reveal">
       <section className="ve-hero">
-        <p className="ve-pill">Diagnostics</p>
-        <h1 className="ve-title">AI Analytics</h1>
-        <p className="ve-subtitle">Root-cause level insights across clusters, features, PCA, and correlation structure.</p>
+        <p className="ve-pill">My Company vs Others</p>
+        <h1 className="ve-title">Competitive Root-Cause Analytics</h1>
+        <p className="ve-subtitle">Analyze why your company differs from peers through features, clusters, PCA, and correlations.</p>
       </section>
+
+      <CompanyPageInsights page="analytics" />
 
       <div className="ve-card rounded-2xl p-5">
         <h2 className="text-xl font-semibold tracking-tight text-slate-900">Why It Is Happening</h2>
@@ -44,11 +46,6 @@ function AIAnalyticsPage() {
       </div>
 
       <CorrelationHeatmap matrix={data?.correlation_matrix || {}} />
-
-      <CompanyBenchmarkPanel
-        title="Competitive Root-Cause Benchmark"
-        description="Compare one company against peers and focus on the specific gaps that hold it back."
-      />
     </div>
   );
 }

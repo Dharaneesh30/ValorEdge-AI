@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import logging
+import os
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 import pandas as pd
 
 try:
@@ -23,21 +26,78 @@ router = APIRouter()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 UPLOAD_PATH = PROJECT_ROOT / "backend" / "uploads" / "dataset.csv"
+PRELOADED_COMPETITORS_PATH = Path(
+    os.environ.get(
+        "PRELOADED_COMPETITORS_PATH",
+        str(PROJECT_ROOT / "backend" / "data" / "preloaded_competitors.csv"),
+    )
+)
 PIPELINE = FullPipelineService(PROJECT_ROOT)
 AI_SERVICE = AIAdviceService()
+BENCHMARK_CACHE: dict[str, dict] = {}
 
 
 @router.post("/upload")
-async def upload_dataset(file: UploadFile = File(...)):
+async def upload_dataset(
+    file: UploadFile = File(...),
+    my_company: str | None = Form(default=None),
+    include_preloaded_competitors: bool = Form(default=True),
+    treat_upload_as_my_company: bool = Form(default=True),
+):
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported. Required columns: date, text")
 
     try:
         UPLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
         content = await file.read()
-        UPLOAD_PATH.write_bytes(content)
+        incoming_df = pd.read_csv(io.BytesIO(content))
+        if "date" not in incoming_df.columns or "text" not in incoming_df.columns:
+            raise HTTPException(status_code=400, detail="Dataset must include required columns: date, text")
 
-        payload = PIPELINE.run(UPLOAD_PATH)
+        requested_company = (my_company or "").strip()
+        inferred_from_data = ""
+        if "company" in incoming_df.columns:
+            company_series = incoming_df["company"].fillna("").astype(str).str.strip()
+            non_empty = company_series[company_series != ""]
+            if not non_empty.empty:
+                inferred_from_data = str(non_empty.mode().iloc[0]).strip()
+        inferred_from_filename = Path(file.filename or "").stem.strip().replace("_", " ").replace("-", " ")
+        chosen_company = requested_company or inferred_from_data or inferred_from_filename or "My Company"
+
+        if treat_upload_as_my_company:
+            # Force all uploaded rows to one target company label so benchmark always compares
+            # "my uploaded company" versus preloaded competitors.
+            incoming_df["company"] = chosen_company
+        else:
+            if "company" not in incoming_df.columns:
+                incoming_df["company"] = chosen_company
+            else:
+                incoming_df["company"] = incoming_df["company"].fillna("").astype(str)
+                incoming_df.loc[incoming_df["company"].str.strip() == "", "company"] = chosen_company
+
+        if include_preloaded_competitors and PRELOADED_COMPETITORS_PATH.exists():
+            competitor_df = pd.read_csv(PRELOADED_COMPETITORS_PATH)
+            if "date" in competitor_df.columns and "text" in competitor_df.columns:
+                incoming_df = pd.concat([incoming_df, competitor_df], ignore_index=True, sort=False)
+            else:
+                logger.warning("Preloaded competitor dataset skipped due to missing required columns: %s", PRELOADED_COMPETITORS_PATH)
+
+        incoming_df.to_csv(UPLOAD_PATH, index=False)
+
+        fast_upload_mode = str(os.environ.get("FAST_UPLOAD_MODE", "true")).strip().lower() not in {"0", "false", "no"}
+        try:
+            fast_upload_max_rows = max(500, int(os.environ.get("FAST_UPLOAD_MAX_ROWS", "1500")))
+        except Exception:
+            fast_upload_max_rows = 1500
+        payload = PIPELINE.run(
+            UPLOAD_PATH,
+            fast_mode=fast_upload_mode,
+            fast_max_rows=fast_upload_max_rows,
+        )
+        payload["metadata"]["my_company"] = chosen_company or None
+        payload["metadata"]["include_preloaded_competitors"] = bool(include_preloaded_competitors)
+        payload["metadata"]["treat_upload_as_my_company"] = bool(treat_upload_as_my_company)
+        payload["metadata"]["preloaded_competitors_path"] = str(PRELOADED_COMPETITORS_PATH) if include_preloaded_competitors else None
         return {
             "message": "Dataset uploaded and full pipeline executed successfully.",
             "metadata": payload["metadata"],
@@ -178,14 +238,27 @@ def get_strategy_view():
     what_if_score = min(1.0, reputation + 0.055)
     what_if_pct = ((what_if_score - reputation) / max(reputation, 1e-6)) * 100
 
-    prompt = (
-        "You are a strategy advisor for corporate reputation. "
-        f"Current reputation score: {reputation:.3f}. "
-        f"7-day forecast average sentiment: {avg_next_7:.3f}. "
-        f"Top feature importance: {(snapshot.models.get('feature_importance') or [])[:5]}. "
-        "Provide targeted recommendations, risks, and quick wins."
-    )
-    strategy_text = AI_SERVICE.generate_text(prompt)
+    strategy_fast_mode = str(os.environ.get("FAST_STRATEGY_MODE", "true")).strip().lower() not in {"0", "false", "no"}
+    if strategy_fast_mode:
+        cached_text = (snapshot.genai_insights or {}).get("insight_text") if isinstance(snapshot.genai_insights, dict) else None
+        strategy_text = (
+            cached_text
+            if isinstance(cached_text, str) and cached_text.strip()
+            else (
+                f"- Reputation score: {reputation:.3f}.\n"
+                f"- Next 7-day average sentiment signal: {avg_next_7:.3f}.\n"
+                "- Focus on the highest-impact features, improve negative themes quickly, and review trend weekly."
+            )
+        )
+    else:
+        prompt = (
+            "You are a strategy advisor for corporate reputation. "
+            f"Current reputation score: {reputation:.3f}. "
+            f"7-day forecast average sentiment: {avg_next_7:.3f}. "
+            f"Top feature importance: {(snapshot.models.get('feature_importance') or [])[:5]}. "
+            "Provide targeted recommendations, risks, and quick wins."
+        )
+        strategy_text = AI_SERVICE.generate_text(prompt)
     provider_status = AI_SERVICE.status()
 
     recommendations = [
@@ -213,6 +286,7 @@ def get_strategy_view():
         "risk_alerts": risk_alerts,
         "genai_strategy_insights": strategy_text,
         "genai_provider_status": provider_status,
+        "strategy_fast_mode": strategy_fast_mode,
     }
 
 
@@ -247,21 +321,48 @@ def company_benchmark(company: str):
         raise HTTPException(status_code=404, detail="No processed dataset available. Upload dataset first.")
 
     try:
-        df = pd.read_csv(snapshot.processed_path)
+        processed = Path(snapshot.processed_path)
+        mtime = int(processed.stat().st_mtime_ns)
+        benchmark_fast_mode = str(os.environ.get("FAST_BENCHMARK_MODE", "true")).strip().lower() not in {"0", "false", "no"}
+        cache_key = f"{processed}:{mtime}:{company}:{int(benchmark_fast_mode)}"
+        cached = BENCHMARK_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        df = pd.read_csv(processed)
         benchmark = CompanyBenchmarkService(df).compare_one_vs_many(company)
 
-        prompt = (
-            "You are a corporate reputation strategy consultant. "
-            f"Target company: {company}. "
-            f"Target metrics: {benchmark['target_metrics']}. "
-            f"Peer comparison: {benchmark['peer_comparison'][:5]}. "
-            f"Peer-derived focus keywords: {benchmark['focus_keywords_from_peers']}. "
-            "Provide concise recommendations to improve target company reputation against competitors. "
-            "Include quick wins and 90-day actions."
-        )
-        ai_text = AI_SERVICE.generate_text(prompt)
-        benchmark["ai_recommendation"] = ai_text
+        if benchmark_fast_mode:
+            gap_top = benchmark["peer_comparison"][0]["gap_vs_target"] if benchmark.get("peer_comparison") else 0.0
+            trend = benchmark["target_metrics"].get("trend", 0.0)
+            benchmark["ai_recommendation"] = (
+                f"- Target company: {company}.\n"
+                f"- Gap vs top peer: {gap_top:+.4f}; current trend: {trend:+.4f}.\n"
+                "- Focus on peer-derived keywords and execute 30-day improvement actions."
+            )
+        else:
+            prompt = (
+                "You are an elite corporate reputation strategist. "
+                f"Target company: {company}. "
+                f"Target metrics: {benchmark['target_metrics']}. "
+                f"Peer comparison: {benchmark['peer_comparison'][:8]}. "
+                f"Peer-derived focus keywords: {benchmark['focus_keywords_from_peers']}. "
+                "Analyze everything across sentiment, trend, positive-ratio, keyword gaps, and peer strengths. "
+                "Goal: make the target company the top-performing peer. "
+                "Return: "
+                "1) top weaknesses causing peer gap, "
+                "2) high-impact opportunities to overtake top peers, "
+                "3) prioritized action plan (Immediate 0-30 days, 30-90 days, 90-180 days), "
+                "4) KPI targets with numeric direction for each stage, "
+                "5) execution risks and mitigations. "
+                "Be practical, specific, and outcome-driven."
+            )
+            ai_text = AI_SERVICE.generate_text(prompt)
+            benchmark["ai_recommendation"] = ai_text
 
+        benchmark["benchmark_fast_mode"] = benchmark_fast_mode
+        BENCHMARK_CACHE.clear()
+        BENCHMARK_CACHE[cache_key] = benchmark
         return benchmark
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -277,3 +378,80 @@ def scenario_simulate(payload: dict):
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/report/export")
+def export_project_report(company: str | None = None):
+    snapshot = pipeline_state.snapshot()
+    if not snapshot.reputation:
+        raise HTTPException(status_code=404, detail="No report data available. Upload dataset first.")
+
+    selected_company = (company or "").strip() or "My Company"
+    benchmark_text = ""
+    try:
+        if snapshot.processed_path:
+            df = pd.read_csv(snapshot.processed_path)
+            if "company" in df.columns and selected_company in df["company"].astype(str).unique().tolist():
+                benchmark = CompanyBenchmarkService(df).compare_one_vs_many(selected_company)
+                top_peer = benchmark["peer_comparison"][0] if benchmark.get("peer_comparison") else {}
+                benchmark_text = (
+                    f"## Company vs Others\n"
+                    f"- Target company: {selected_company}\n"
+                    f"- Sentiment mean: {benchmark['target_metrics'].get('sentiment_mean')}\n"
+                    f"- Trend: {benchmark['target_metrics'].get('trend')}\n"
+                    f"- Positive ratio: {benchmark['target_metrics'].get('positive_ratio')}\n"
+                    f"- Top peer: {top_peer.get('company', 'N/A')}\n"
+                    f"- Gap vs top peer: {top_peer.get('gap_vs_target', 'N/A')}\n"
+                    f"- Focus keywords: {', '.join(benchmark.get('focus_keywords_from_peers', [])[:12]) or 'N/A'}\n"
+                )
+    except Exception:
+        benchmark_text = ""
+
+    model_rows = snapshot.models.get("model_comparison", []) if snapshot.models else []
+    sorted_models = sorted(model_rows, key=lambda x: x.get("rmse", 1e9))
+    best_model = sorted_models[0] if sorted_models else {}
+    second_model = sorted_models[1] if len(sorted_models) > 1 else {}
+    model_justification = ""
+    if best_model:
+        model_justification = (
+            f"## Model Justification\n"
+            f"- Selected best model: {best_model.get('model')}\n"
+            f"- RMSE: {best_model.get('rmse')}, MAE: {best_model.get('mae')}, R2: {best_model.get('r2')}\n"
+        )
+        if second_model:
+            model_justification += (
+                f"- Runner-up: {second_model.get('model')} (RMSE {second_model.get('rmse')})\n"
+                "- Selection rule: lowest RMSE with stable MAE and competitive R2.\n"
+            )
+
+    report_text = (
+        "# ValorEdge AI - Evaluation Report\n\n"
+        "## Data Preprocessing & EDA\n"
+        f"- Rows processed: {snapshot.metadata.get('rows_processed') if snapshot.metadata else 'N/A'}\n"
+        f"- Date range: {snapshot.eda.get('summary', {}).get('date_min', 'N/A')} to {snapshot.eda.get('summary', {}).get('date_max', 'N/A')}\n"
+        f"- Correlation features: {len((snapshot.eda.get('correlation_matrix') or {}).keys())}\n\n"
+        "## Dimensionality Reduction\n"
+        f"- PCA components generated: {len(snapshot.pca.get('components', [])) if snapshot.pca else 0}\n"
+        "- Factor analysis completed with 2 latent factors.\n\n"
+        "## Clustering\n"
+        f"- KMeans/Hierarchical labels: {len(snapshot.clusters.get('kmeans_labels', [])) if snapshot.clusters else 0} records\n"
+        f"- Cluster keywords: {snapshot.clusters.get('interpretation', {}).get('cluster_keywords', {}) if snapshot.clusters else {}}\n\n"
+        "## Predictive Modeling\n"
+        f"- Best model from pipeline: {snapshot.models.get('best_model') if snapshot.models else 'N/A'}\n"
+        f"- Compared models: {[m.get('model') for m in model_rows]}\n\n"
+        f"{model_justification}\n"
+        "## Forecast & Reputation\n"
+        f"- Reputation score: {snapshot.reputation.get('final_reputation_score') if snapshot.reputation else 'N/A'}\n"
+        f"- Forecast points: {len(snapshot.forecast.get('forecast', [])) if snapshot.forecast else 0}\n\n"
+        "## Interpretation & Business Insights\n"
+        f"- Strategy insight: {(snapshot.genai_insights or {}).get('insight_text', 'N/A') if snapshot.genai_insights else 'N/A'}\n\n"
+        f"{benchmark_text}\n"
+        "## Conclusion\n"
+        "- Project delivers full pipeline from raw text to explainable business actions.\n"
+    )
+
+    return Response(
+        content=report_text,
+        media_type="text/markdown",
+        headers={"Content-Disposition": "attachment; filename=valoredge_report.md"},
+    )

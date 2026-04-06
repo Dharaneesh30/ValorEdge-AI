@@ -68,10 +68,10 @@ class EDAModule:
         ax.set_xlabel("Count")
         return self._save_plot(fig, "word_frequency.png")
 
-    def run(self) -> Dict[str, Any]:
-        distribution_path = self.sentiment_distribution_plot()
-        trend_path = self.time_series_trend_plot()
-        word_plot_path = self.word_frequency_plot()
+    def run(self, include_plots: bool = True) -> Dict[str, Any]:
+        distribution_path = self.sentiment_distribution_plot() if include_plots else ""
+        trend_path = self.time_series_trend_plot() if include_plots else ""
+        word_plot_path = self.word_frequency_plot() if include_plots else ""
         word_freq = self.word_frequency()
         numeric_df = self.df.select_dtypes(include=["number"])
         trend_points = (

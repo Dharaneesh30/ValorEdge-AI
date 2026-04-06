@@ -18,6 +18,9 @@ class TextPreprocessor:
     def _normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         df.columns = [str(c).strip().lower() for c in df.columns]
+        # If upload contains case-variant duplicate names (e.g., Company + company),
+        # keep first occurrence to avoid DataFrame-returning column selection later.
+        df = df.loc[:, ~df.columns.duplicated()].copy()
         return df
 
     def validate_schema(self, df: pd.DataFrame) -> Tuple[bool, List[str]]:

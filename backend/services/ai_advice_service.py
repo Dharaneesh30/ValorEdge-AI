@@ -2,6 +2,7 @@ import os
 import logging
 import warnings
 import importlib
+import time
 from typing import List, Dict, Any
 import requests
 
@@ -52,6 +53,12 @@ class AIAdviceService:
         self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         self.ollama_timeout_seconds = 15
         self.ollama_metadata_timeout_seconds = 12
+        self.ollama_max_timeout_seconds = 45
+        self.ollama_max_model_attempts = 2
+        self.ollama_model_cooldown_seconds = 600
+        self.ollama_num_predict = 160
+        self.ollama_num_ctx = 2048
+        self._ollama_skip_until: Dict[str, float] = {}
         self._api_key_source = "missing"
         self.last_error = None
 
@@ -78,6 +85,27 @@ class AIAdviceService:
             "OLLAMA_METADATA_TIMEOUT_SECONDS",
             self.ollama_metadata_timeout_seconds,
         )
+        self.ollama_max_timeout_seconds = self._read_int_env(
+            "OLLAMA_MAX_TIMEOUT_SECONDS",
+            self.ollama_max_timeout_seconds,
+        )
+        self.ollama_max_model_attempts = self._read_int_env(
+            "OLLAMA_MAX_MODEL_ATTEMPTS",
+            self.ollama_max_model_attempts,
+        )
+        self.ollama_model_cooldown_seconds = self._read_int_env(
+            "OLLAMA_MODEL_COOLDOWN_SECONDS",
+            self.ollama_model_cooldown_seconds,
+        )
+        self.ollama_num_predict = self._read_int_env(
+            "OLLAMA_NUM_PREDICT",
+            self.ollama_num_predict,
+        )
+        self.ollama_num_ctx = self._read_int_env(
+            "OLLAMA_NUM_CTX",
+            self.ollama_num_ctx,
+        )
+        self.ollama_timeout_seconds = min(self.ollama_timeout_seconds, self.ollama_max_timeout_seconds)
 
         if self.ai_provider == "ollama":
             self._api_key_source = "none-local"
@@ -181,11 +209,25 @@ class AIAdviceService:
         configured = [m.strip() for m in env_candidates.split(",") if m.strip()]
         available = self._ollama_available_models()
         candidates = [self.ollama_model, self.ollama_fallback_model, "llama3.2:3b"] + configured + available
+
+        # If Ollama returned model tags, prioritize only installed models first.
+        if available:
+            prioritized = [m for m in candidates if m in available]
+            remainder = [m for m in candidates if m not in available]
+            candidates = prioritized + remainder
+
         unique_models: List[str] = []
         for model_name in candidates:
             if model_name and model_name not in unique_models:
                 unique_models.append(model_name)
         return unique_models
+
+    def _ollama_should_skip_model(self, model_name: str) -> bool:
+        until = self._ollama_skip_until.get(model_name, 0.0)
+        return until > time.time()
+
+    def _ollama_mark_skip(self, model_name: str) -> None:
+        self._ollama_skip_until[model_name] = time.time() + float(self.ollama_model_cooldown_seconds)
 
     def _ollama_available_models(self) -> List[str]:
         try:
@@ -217,6 +259,8 @@ class AIAdviceService:
                 "stream": False,
                 "options": {
                     "temperature": 0.4,
+                    "num_predict": self.ollama_num_predict,
+                    "num_ctx": self.ollama_num_ctx,
                 },
             },
             timeout=self.ollama_timeout_seconds,
@@ -473,8 +517,14 @@ class AIAdviceService:
         try:
             if self.ai_provider == "ollama":
                 try:
+                    attempts = 0
                     for model_name in self._ollama_model_candidates():
+                        if attempts >= self.ollama_max_model_attempts:
+                            break
+                        if self._ollama_should_skip_model(model_name):
+                            continue
                         try:
+                            attempts += 1
                             text = self._call_ollama(prompt, model_name=model_name)
                             if text:
                                 if model_name != self.ollama_model:
@@ -482,6 +532,15 @@ class AIAdviceService:
                                 return text
                         except Exception as model_error:
                             self.last_error = str(model_error)
+                            lowered = self.last_error.lower()
+                            if (
+                                ("not found" in lowered)
+                                or ("read timed out" in lowered)
+                                or ("readtimeout" in lowered)
+                                or ("connection refused" in lowered)
+                                or ("max retries exceeded" in lowered)
+                            ):
+                                self._ollama_mark_skip(model_name)
                             logger.warning("Ollama request failed for model '%s': %s", model_name, model_error)
                             continue
                     return self._call_failure_response()

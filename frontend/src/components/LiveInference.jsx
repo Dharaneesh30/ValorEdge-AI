@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
-import API_BASE_URL from "../config/api";
 import { useCompanyComparison } from "../context/CompanyContext";
+import usePageInsights from "../hooks/usePageInsights";
 
 function LiveInference({ page, data = null, showStreaming = true }) {
-  const [insights, setInsights] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [displayedInsights, setDisplayedInsights] = useState([]);
   const { selectedCompany } = useCompanyComparison();
+  const { insights, loading } = usePageInsights(page, selectedCompany, data);
 
   // Show only first 3 insights and stream them
   useEffect(() => {
@@ -25,50 +23,6 @@ function LiveInference({ page, data = null, showStreaming = true }) {
       setDisplayedInsights(insights.slice(0, 3));
     }
   }, [insights, showStreaming]);
-
-  useEffect(() => {
-    const fetchInsights = async () => {
-      if (!selectedCompany) {
-        setLoading(false);
-        setInsights(null);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 45000); // 45 second timeout
-        
-        try {
-          const response = await axios.post(`${API_BASE_URL}/api/ai/page-insights`, {
-            page,
-            company: selectedCompany,
-            context_data: data || {},
-          }, { signal: controller.signal });
-          clearTimeout(timeout);
-          const fetchedInsights = response.data?.insights || [];
-          console.log(`Insights for ${page}:`, fetchedInsights);
-          setInsights(fetchedInsights.length > 0 ? fetchedInsights : []);
-        } catch (axiosErr) {
-          clearTimeout(timeout);
-          if (axiosErr.code === 'ECONNABORTED') {
-            console.warn(`AI insight request timed out for ${page}`);
-            setInsights([]);
-          } else {
-            console.error(`API error for ${page}:`, axiosErr.message);
-            setInsights([]);
-          }
-        }
-      } catch (err) {
-        console.error("LiveInference error:", err?.response?.data?.detail || err.message);
-        setInsights([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInsights();
-  }, [page, selectedCompany, data]);
 
   if (!selectedCompany) {
     return null;

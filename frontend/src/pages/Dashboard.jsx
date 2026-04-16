@@ -2,7 +2,6 @@ import useApi from "../hooks/useApi";
 import { ForecastChart, ModelComparisonChart, SentimentTrendChart } from "../components/Charts";
 import CompanyPageInsights from "../components/CompanyPageInsights";
 import PageAIInsights from "../components/PageAIInsights";
-import LiveInference from "../components/LiveInference";
 import { useCompanyComparison } from "../context/CompanyContext";
 import API_BASE_URL from "../config/api";
 
@@ -40,12 +39,12 @@ function Dashboard() {
         <p className="ve-pill">My Company vs Others</p>
         <h1 className="ve-title">Competitive Performance Dashboard</h1>
         <p className="ve-subtitle">Track your company KPI against peer-driven signals, forecast outlook, and model quality.</p>
-        <button type="button" onClick={downloadReport} className="ve-btn-primary mt-3">Download Project Report</button>
+        <button type="button" onClick={downloadReport} className="ve-btn-primary mt-3">Generate Report</button>
       </section>
 
       <CompanyPageInsights page="dashboard" />
 
-      <LiveInference page="dashboard" data={data} />
+      <PageAIInsights page="dashboard" data={data} />
 
       <div className="ve-kpi rounded-2xl p-5 sm:p-6">
         <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Live Corporate Reputation</p>
@@ -98,7 +97,6 @@ function Dashboard() {
         })()}
       </div>
 
-      <PageAIInsights page="dashboard" data={data} />
     </div>
   );
 }

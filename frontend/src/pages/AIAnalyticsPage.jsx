@@ -2,7 +2,6 @@ import useApi from "../hooks/useApi";
 import { CorrelationHeatmap, FeatureImportanceChart, PcaScatterChart } from "../components/Charts";
 import CompanyPageInsights from "../components/CompanyPageInsights";
 import PageAIInsights from "../components/PageAIInsights";
-import LiveInference from "../components/LiveInference";
 
 function AIAnalyticsPage() {
   const { data, loading, error } = useApi("/analytics");
@@ -49,7 +48,7 @@ function AIAnalyticsPage() {
 
       <CompanyPageInsights page="analytics" />
 
-      <LiveInference page="analytics" data={data} />
+      <PageAIInsights page="analytics" data={data} />
 
       <div className="ve-card rounded-2xl p-5">
         <h2 className="text-xl font-semibold tracking-tight text-slate-900">Why It Is Happening</h2>
@@ -84,7 +83,6 @@ function AIAnalyticsPage() {
         <CorrelationHeatmap matrix={data.correlation_matrix} />
       )}
 
-      <PageAIInsights page="analytics" data={data} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-
+from api.routes._paths import dataset_csv_path
 from services.reputation_service import ReputationService
 from services.ai_advice_service import AIAdviceService
 from analytics.scenario_simulation import ScenarioSimulation

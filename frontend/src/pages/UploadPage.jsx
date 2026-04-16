@@ -3,17 +3,13 @@ import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { useCompanyComparison } from "../context/CompanyContext";
 import CompanyPageInsights from "../components/CompanyPageInsights";
-import PageAIInsights from "../components/PageAIInsights";
-import LiveInference from "../components/LiveInference";
 
 function UploadPage() {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [uploadData, setUploadData] = useState(null);
   const {
-    selectedCompany,
     setSelectedCompany,
     refreshCompanies,
     refreshBenchmark,
@@ -59,18 +55,18 @@ function UploadPage() {
         `Pipeline completed. Processed ${rowsProcessed ?? 0} rows${wasLimited ? ` (from ${rowsOriginal})` : ""}. Best model: ${response.data?.best_model ?? "n/a"}. Selected company: ${inferredCompany || "N/A"}${operationText}${fastMode ? " Fast mode enabled." : ""}`
       );
       
-      // Store upload data for AI insights
-      setUploadData({
-        rows_processed: rowsProcessed,
-        best_model: response.data?.best_model,
-        rows_removed: rowsRemoved,
-        operation: operation,
-      });
-      
       await refreshCompanies();
       await refreshBenchmark();
     } catch (err) {
-      setError(err?.response?.data?.detail || err.message || "Upload failed");
+      const isNetworkError =
+        !err?.response &&
+        (String(err?.message || "").toLowerCase().includes("network error") ||
+          String(err?.code || "").toUpperCase() === "ERR_NETWORK");
+      if (isNetworkError) {
+        setError("Cannot reach backend API at http://127.0.0.1:8000. Start the backend server and retry.");
+      } else {
+        setError(err?.response?.data?.detail || err.message || "Upload failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -85,8 +81,6 @@ function UploadPage() {
       </section>
 
       <CompanyPageInsights page="upload" />
-
-      <LiveInference page="upload" data={uploadData} />
 
       <div className="ve-card rounded-2xl p-6 sm:p-7">
         <p className="mt-2 text-sm text-slate-700">
@@ -128,10 +122,6 @@ function UploadPage() {
         {message && <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
         {error && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
       </div>
-
-      {uploadData && selectedCompany && (
-        <PageAIInsights page="upload" data={uploadData} />
-      )}
     </div>
   );
 }

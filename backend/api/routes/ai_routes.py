@@ -1,11 +1,17 @@
+import logging
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
-from services.ai_advice_service import AIAdviceService
-from api.routes._paths import dataset_csv_path
+try:
+    from api.routes._paths import dataset_csv_path
+    from services.ai_advice_service import AIAdviceService
+except ModuleNotFoundError:
+    from backend.api.routes._paths import dataset_csv_path
+    from backend.services.ai_advice_service import AIAdviceService
 
 router = APIRouter()
 ai_service = AIAdviceService()
+logger = logging.getLogger(__name__)
 
 @router.get("/status")
 def ai_status():
@@ -214,6 +220,7 @@ def page_insights(payload: dict):
         else:
             # Parse insights from response
             insights = _parse_insights_from_text(response_text, page)
+        insights = _attach_improvement_actions(page, insights, context_data)
 
         return {"insights": insights}
     except HTTPException as he:
@@ -224,6 +231,7 @@ def page_insights(payload: dict):
             df = pd.read_csv(dataset_csv_path())
             company_df = df[df["company"] == company]
             fallback = _get_fallback_insights(page, company, context_data, company_df, df)
+            fallback = _attach_improvement_actions(page, fallback, context_data)
             return {"insights": fallback}
         except Exception:
             raise HTTPException(status_code=500, detail=f"Failed to generate insights: {str(e)}")
@@ -245,8 +253,10 @@ def _build_dashboard_insights_prompt(company: str, context_data: dict, company_d
         f"Best Model: {best_model}. "
         f"Rank: {company_rank}/{total_companies}. "
         f"Data points: {len(company_df)}. "
-        "Format each insight as: [INSIGHT]: brief observation "
-        "Focus on: KPI interpretation, trend implications, model reliability, competitive position. "
+        f"Page result payload keys: {list((context_data or {}).keys())}. "
+        "Format each insight as: [INSIGHT]: brief observation | ACTION: specific score-improvement step. "
+        "Include one explicit [IMPROVEMENT STATUS] line that states improving/stable/declining and why. "
+        "Focus on: KPI interpretation, trend implications, model reliability, and how this company changed versus peer companies. "
         "Keep insights concise and actionable."
     )
     return prompt
@@ -263,7 +273,7 @@ def _build_upload_insights_prompt(company: str, context_data: dict, company_df: 
         f"Rows processed: {rows_processed}. "
         f"Best model selected: {best_model}. "
         "Provide 3-4 INITIAL OBSERVATIONS about the data quality, coverage, and what analysis steps to take next. "
-        "Format each as: [OBSERVATION]: brief note "
+        "Format each as: [OBSERVATION]: brief note | ACTION: clear next step "
         "Focus on: data completeness, sentiment distribution, date range coverage, next recommended actions."
     )
     return prompt
@@ -279,9 +289,11 @@ def _build_graphs_insights_prompt(company: str, context_data: dict, company_df: 
         f"Sentiment records: {len(sentiment_data)}. "
         f"Forecast points: {len(forecast_data)}. "
         f"Your company vs {len(all_df['company'].unique())} total companies. "
+        f"Page result payload keys: {list((context_data or {}).keys())}. "
         "Provide 4-5 GRAPH INTERPRETATION INSIGHTS about trends, patterns, and what they mean. "
-        "Format each as: [GRAPH INSIGHT]: observation "
-        "Focus on: sentiment momentum, forecast confidence, model variance, peer comparison gaps."
+        "Format each as: [GRAPH INSIGHT]: observation | ACTION: specific score-improvement step. "
+        "Include one [IMPROVEMENT STATUS] line using trend direction from graph data. "
+        "Focus on: sentiment momentum, forecast confidence, model variance, and comparison gaps against other companies."
     )
     return prompt
 
@@ -295,9 +307,11 @@ def _build_analytics_insights_prompt(company: str, context_data: dict, company_d
         f"You are ValorEdge AI analyst. Provide ROOT-CAUSE ANALYSIS insights for {company}. "
         f"Top features: {feature_importance[:5] if feature_importance else 'N/A'}. "
         f"Clusters identified: {len(cluster_insights)}. "
+        f"Page result payload keys: {list((context_data or {}).keys())}. "
         "Generate 4-5 ANALYTICAL INSIGHTS explaining why your company differs from peers. "
-        "Format each as: [REASON]: explanation "
-        "Focus on: feature drivers, cluster membership implications, correlation patterns, competitive differentiation."
+        "Format each as: [REASON]: explanation | ACTION: specific score-improvement step. "
+        "Include one [IMPROVEMENT STATUS] line based on root-cause signals (improving/stable/declining). "
+        "Focus on: feature drivers, cluster membership implications, correlation patterns, and competitive differentiation from other companies."
     )
     return prompt
 
@@ -314,14 +328,17 @@ def _build_strategy_insights_prompt(company: str, context_data: dict, company_df
         f"Projected (if scenario applied): {projected_score}. "
         f"Potential Improvement: {improvements}%. "
         f"Total companies in market: {len(all_df['company'].unique())}. "
+        f"Page result payload keys: {list((context_data or {}).keys())}. "
         "Provide 5-6 STRATEGIC AI RECOMMENDATIONS with categories: "
+        "[IMPROVEMENT STATUS] - overall trajectory and whether strategy improves score, "
         "[STRATEGIC PRIORITY] - critical changes, "
         "[COMPETITIVE ADVANTAGE] - differentiation opportunities, "
         "[RISK ALERT] - concerning trends, "
         "[QUICK WIN] - easy improvements, "
         "[MARKET POSITION] - positioning advice, "
         "[DATA-DRIVEN ACTION] - what the metrics tell us to do. "
-        "Each should be 1-2 sentences max. Focus on actionable, data-backed recommendations."
+        "Each should be 1-2 sentences max and include a concrete improvement action. "
+        "Focus on actionable, data-backed recommendations and how to outperform peer companies."
     )
     return prompt
 
@@ -343,16 +360,23 @@ def _parse_insights_from_text(text: str, page: str) -> list:
                 bracket_end = line.index("]")
                 category = line[1:bracket_end].strip()
                 insight_text = line[bracket_end + 1:].strip().lstrip("-:").strip()
+                action_text = ""
+                if "|" in insight_text and "ACTION:" in insight_text.upper():
+                    left, right = insight_text.split("|", 1)
+                    insight_text = left.strip()
+                    action_text = right.replace("ACTION:", "").replace("action:", "").strip()
+                elif " ACTION:" in insight_text:
+                    left, right = insight_text.split(" ACTION:", 1)
+                    insight_text = left.strip()
+                    action_text = right.strip()
                 
                 if insight_text:
                     insight_obj = {
                         "insight": insight_text,
                         "category": category,
                     }
-                    
-                    # Add action recommendations for strategy page
-                    if page in ["strategy", "simulation"] and category in ["STRATEGIC PRIORITY", "QUICK WIN"]:
-                        insight_obj["action"] = f"Review and implement: {insight_text}"
+                    if action_text:
+                        insight_obj["action"] = action_text
                     
                     insights.append(insight_obj)
             except (ValueError, IndexError):
@@ -384,6 +408,48 @@ def _parse_insights_from_text(text: str, page: str) -> list:
                 })
 
     return insights[:6]  # Return max 6 insights
+
+
+def _default_action_for_insight(page: str, category: str, context_data: dict) -> str:
+    cat = (category or "").upper()
+    if cat in {"IMPROVEMENT STATUS", "SCORE", "KPI"}:
+        return "Improve response quality on negative themes and review sentiment movement weekly."
+    if cat in {"MODEL", "DATA-DRIVEN ACTION"}:
+        return "Prioritize top model drivers and track RMSE/MAE changes after each update cycle."
+    if cat in {"RANK", "MARKET POSITION", "COMPETITIVE ADVANTAGE"}:
+        return "Benchmark against the top peer weekly and close the largest keyword/sentiment gap first."
+    if cat in {"FEATURES", "REASON", "ROOTCAUSE", "CLUSTERS"}:
+        return "Target the highest-impact root causes first and assign measurable 30-day KPI owners."
+    if cat in {"FORECAST", "TREND", "RISK ALERT"}:
+        return "Set a 7-day alert threshold and trigger corrective actions when trend weakens."
+    if cat in {"QUICK WIN", "STRATEGIC PRIORITY", "ACTION", "STRATEGY", "GUIDANCE"}:
+        return "Execute this as a 2-week sprint item and review score impact before the next cycle."
+    if page in {"strategy", "simulation"}:
+        return "Implement one high-impact change now and re-run simulation to validate score lift."
+    if page == "analytics":
+        return "Translate this insight into one root-cause fix and monitor feature importance change."
+    if page == "graphs":
+        return "Use trend and forecast changes to prioritize interventions for the next reporting window."
+    return "Apply this insight as a measurable improvement step and monitor score trend weekly."
+
+
+def _attach_improvement_actions(page: str, insights: list, context_data: dict) -> list:
+    enriched = []
+    for item in insights or []:
+        if not isinstance(item, dict):
+            continue
+        category = str(item.get("category", "INSIGHT"))
+        action = item.get("action")
+        if not isinstance(action, str) or not action.strip():
+            action = _default_action_for_insight(page, category, context_data or {})
+        enriched.append(
+            {
+                "insight": str(item.get("insight", "")).strip(),
+                "category": category,
+                "action": action.strip(),
+            }
+        )
+    return enriched[:6]
 
 
 def _get_fallback_insights(page: str, company: str, context_data: dict, company_df: pd.DataFrame, all_df: pd.DataFrame) -> list:

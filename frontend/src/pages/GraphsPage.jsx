@@ -9,7 +9,6 @@ import {
 } from "../components/Charts";
 import CompanyPageInsights from "../components/CompanyPageInsights";
 import PageAIInsights from "../components/PageAIInsights";
-import LiveInference from "../components/LiveInference";
 
 function GraphsPage() {
   const dashboard = useApi("/dashboard");
@@ -76,7 +75,7 @@ function GraphsPage() {
 
       <CompanyPageInsights page="graphs" />
 
-      <LiveInference page="graphs" data={combinedData} />
+      <PageAIInsights page="graphs" data={combinedData} />
 
       <section className="ve-card rounded-2xl p-5">
         <div className="mt-4 flex flex-wrap gap-2">
@@ -122,7 +121,6 @@ function GraphsPage() {
         </section>
       )}
 
-      <PageAIInsights page="graphs" data={combinedData} />
     </div>
   );
 }

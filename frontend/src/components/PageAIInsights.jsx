@@ -1,59 +1,9 @@
-import { useState, useEffect } from "react";
-import axios from "axios";
-import API_BASE_URL from "../config/api";
 import { useCompanyComparison } from "../context/CompanyContext";
+import usePageInsights from "../hooks/usePageInsights";
 
 function PageAIInsights({ page, data = null }) {
-  const [insights, setInsights] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const { selectedCompany } = useCompanyComparison();
-
-  useEffect(() => {
-    const fetchInsights = async () => {
-      if (!selectedCompany) {
-        setLoading(false);
-        setInsights(null);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError("");
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 45000); // 45 second timeout
-        
-        try {
-          const response = await axios.post(`${API_BASE_URL}/api/ai/page-insights`, {
-            page,
-            company: selectedCompany,
-            context_data: data || {},
-          }, { signal: controller.signal });
-          clearTimeout(timeout);
-          const fetchedInsights = response.data?.insights || [];
-          console.log(`PageAIInsights for ${page}:`, fetchedInsights);
-          setInsights(fetchedInsights.length > 0 ? fetchedInsights : []);
-        } catch (axiosErr) {
-          clearTimeout(timeout);
-          if (axiosErr.code === 'ECONNABORTED') {
-            console.warn(`PageAIInsights request timed out for ${page}`);
-            setInsights([]);
-          } else {
-            console.error(`PageAIInsights API error for ${page}:`, axiosErr.message);
-            setInsights([]);
-          }
-        }
-      } catch (err) {
-        console.error("PageAIInsights error:", err?.response?.data?.detail || err.message);
-        setError("");
-        setInsights([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInsights();
-  }, [page, selectedCompany, data]);
+  const { insights, loading } = usePageInsights(page, selectedCompany, data);
 
   if (!selectedCompany) {
     return null;
@@ -143,6 +93,11 @@ function PageAIInsights({ page, data = null }) {
                       <span className="ml-2 text-xs text-cyan-600 font-semibold uppercase">
                         ({insight.category})
                       </span>
+                    )}
+                    {insight.action && (
+                      <p className="mt-1 text-xs text-slate-600">
+                        How to improve score: <span className="font-semibold text-cyan-700">{insight.action}</span>
+                      </p>
                     )}
                   </div>
                 </div>

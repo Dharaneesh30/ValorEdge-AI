@@ -8,11 +8,6 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 import pandas as pd
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.enums import TA_LEFT
 
 try:
     from services.full_pipeline_service import FullPipelineService
@@ -40,6 +35,31 @@ PRELOADED_COMPETITORS_PATH = Path(
 PIPELINE = FullPipelineService(PROJECT_ROOT)
 AI_SERVICE = AIAdviceService()
 BENCHMARK_CACHE: dict[str, dict] = {}
+_REPORTLAB_IMPORT_ERROR: Exception | None = None
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+except Exception as exc:
+    _REPORTLAB_IMPORT_ERROR = exc
+
+
+def _ensure_reportlab() -> bool:
+    global _REPORTLAB_IMPORT_ERROR, letter, getSampleStyleSheet, ParagraphStyle, inch, SimpleDocTemplate, Paragraph, Spacer
+    if _REPORTLAB_IMPORT_ERROR is None:
+        return True
+    try:
+        from reportlab.lib.pagesizes import letter  # type: ignore[no-redef]
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # type: ignore[no-redef]
+        from reportlab.lib.units import inch  # type: ignore[no-redef]
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer  # type: ignore[no-redef]
+        _REPORTLAB_IMPORT_ERROR = None
+        return True
+    except Exception as exc:
+        _REPORTLAB_IMPORT_ERROR = exc
+        return False
 
 
 @router.post("/upload")
@@ -415,6 +435,15 @@ def scenario_simulate(payload: dict):
 
 @router.get("/report/export")
 def export_project_report(company: str | None = None):
+    if not _ensure_reportlab():
+        detail_text = "PDF export dependency missing. Install backend requirements and restart the server."
+        if _REPORTLAB_IMPORT_ERROR is not None:
+            detail_text = f"{detail_text} Cause: {type(_REPORTLAB_IMPORT_ERROR).__name__}: {_REPORTLAB_IMPORT_ERROR}"
+        raise HTTPException(
+            status_code=503,
+            detail=detail_text,
+        )
+
     snapshot = pipeline_state.snapshot()
     if not snapshot.reputation:
         raise HTTPException(status_code=404, detail="No report data available. Upload dataset first.")
@@ -457,6 +486,21 @@ def export_project_report(company: str | None = None):
                 "- Selection rule: lowest RMSE with stable MAE and competitive R2.\n"
             )
 
+    forecast_values = [float(item.get("value", 0.0)) for item in (snapshot.forecast.get("forecast", []) if snapshot.forecast else [])]
+    next_7 = forecast_values[:7]
+    avg_next_7 = float(sum(next_7) / len(next_7)) if next_7 else 0.0
+    risk_label = "decline risk" if avg_next_7 < 0 else "stable to positive trend"
+    top_features = [item.get("feature") for item in (snapshot.models.get("feature_importance", []) if snapshot.models else [])[:5]]
+    top_features_text = ", ".join([str(x) for x in top_features if x]) or "key drivers not available"
+    strategy_plan = (
+        "## Strategy to Improve Company Reputation\n"
+        f"- Near-term signal: next 7-day average forecast is {avg_next_7:.4f} ({risk_label}).\n"
+        f"- Priority model drivers: {top_features_text}.\n"
+        "- Immediate (0-30 days): resolve top negative themes quickly, improve customer-response SLA, and publish weekly progress metrics.\n"
+        "- Mid-term (30-90 days): align communication with top peer-performing themes and run targeted campaigns on weak sentiment clusters.\n"
+        "- Long-term (90-180 days): institutionalize monthly model/forecast reviews, update initiatives by feature-impact shifts, and track peer gap reduction KPI.\n"
+    )
+
     report_text = (
         "# ValorEdge AI - Evaluation Report\n\n"
         "## Data Preprocessing & EDA\n"
@@ -479,12 +523,13 @@ def export_project_report(company: str | None = None):
         "## Interpretation & Business Insights\n"
         f"- Strategy insight: {(snapshot.genai_insights or {}).get('insight_text', 'N/A') if snapshot.genai_insights else 'N/A'}\n\n"
         f"{benchmark_text}\n"
+        f"{strategy_plan}\n"
         "## Conclusion\n"
         "- Project delivers full pipeline from raw text to explainable business actions.\n"
     )
 
     # Convert markdown text to PDF
-    pdf_buffer = BytesIO()
+    pdf_buffer = io.BytesIO()
     doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
     elements = []
     styles = getSampleStyleSheet()

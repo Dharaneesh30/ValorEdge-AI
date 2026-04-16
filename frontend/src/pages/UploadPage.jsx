@@ -3,12 +3,15 @@ import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { useCompanyComparison } from "../context/CompanyContext";
 import CompanyPageInsights from "../components/CompanyPageInsights";
+import PageAIInsights from "../components/PageAIInsights";
+import LiveInference from "../components/LiveInference";
 
 function UploadPage() {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [uploadData, setUploadData] = useState(null);
   const {
     selectedCompany,
     setSelectedCompany,
@@ -41,11 +44,29 @@ function UploadPage() {
       const fastMode = Boolean(response?.data?.metadata?.fast_mode);
       const rowsOriginal = response?.data?.metadata?.rows_original;
       const rowsProcessed = response?.data?.metadata?.rows_processed;
+      const rowsRemoved = response?.data?.metadata?.rows_removed || 0;
+      const operation = response?.data?.metadata?.operation || "insert";
       const wasLimited = Number(rowsOriginal || 0) > Number(rowsProcessed || 0);
 
+      let operationText = "";
+      if (operation === "update" && rowsRemoved > 0) {
+        operationText = ` (Updated: removed ${rowsRemoved} old records, added new ones).`;
+      } else {
+        operationText = ` (New company added to dataset).`;
+      }
+
       setMessage(
-        `Pipeline completed. Processed ${rowsProcessed ?? 0} rows${wasLimited ? ` (from ${rowsOriginal})` : ""}. Best model: ${response.data?.best_model ?? "n/a"}. Selected company: ${inferredCompany || "N/A"}${fastMode ? ". Fast mode enabled." : ""}.`
+        `Pipeline completed. Processed ${rowsProcessed ?? 0} rows${wasLimited ? ` (from ${rowsOriginal})` : ""}. Best model: ${response.data?.best_model ?? "n/a"}. Selected company: ${inferredCompany || "N/A"}${operationText}${fastMode ? " Fast mode enabled." : ""}`
       );
+      
+      // Store upload data for AI insights
+      setUploadData({
+        rows_processed: rowsProcessed,
+        best_model: response.data?.best_model,
+        rows_removed: rowsRemoved,
+        operation: operation,
+      });
+      
       await refreshCompanies();
       await refreshBenchmark();
     } catch (err) {
@@ -64,6 +85,8 @@ function UploadPage() {
       </section>
 
       <CompanyPageInsights page="upload" />
+
+      <LiveInference page="upload" data={uploadData} />
 
       <div className="ve-card rounded-2xl p-6 sm:p-7">
         <p className="mt-2 text-sm text-slate-700">
@@ -105,6 +128,10 @@ function UploadPage() {
         {message && <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
         {error && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
       </div>
+
+      {uploadData && selectedCompany && (
+        <PageAIInsights page="upload" data={uploadData} />
+      )}
     </div>
   );
 }

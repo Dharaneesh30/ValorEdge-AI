@@ -1,6 +1,8 @@
 import useApi from "../hooks/useApi";
 import { ForecastChart, ModelComparisonChart, SentimentTrendChart } from "../components/Charts";
 import CompanyPageInsights from "../components/CompanyPageInsights";
+import PageAIInsights from "../components/PageAIInsights";
+import LiveInference from "../components/LiveInference";
 import { useCompanyComparison } from "../context/CompanyContext";
 import API_BASE_URL from "../config/api";
 
@@ -17,7 +19,7 @@ function Dashboard() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "valoredge_report.md";
+      link.download = "valoredge_report.pdf";
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -42,6 +44,8 @@ function Dashboard() {
       </section>
 
       <CompanyPageInsights page="dashboard" />
+
+      <LiveInference page="dashboard" data={data} />
 
       <div className="ve-kpi rounded-2xl p-5 sm:p-6">
         <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">Live Corporate Reputation</p>
@@ -93,6 +97,8 @@ function Dashboard() {
           );
         })()}
       </div>
+
+      <PageAIInsights page="dashboard" data={data} />
     </div>
   );
 }

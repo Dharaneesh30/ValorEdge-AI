@@ -8,6 +8,11 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 import pandas as pd
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.enums import TA_LEFT
 
 try:
     from services.full_pipeline_service import FullPipelineService
@@ -75,6 +80,25 @@ async def upload_dataset(
                 incoming_df["company"] = incoming_df["company"].fillna("").astype(str)
                 incoming_df.loc[incoming_df["company"].str.strip() == "", "company"] = chosen_company
 
+        # Preserve existing company data - remove old data for this company and add new data
+        processed_dataset_path = PROJECT_ROOT / "backend" / "data" / "processed_dataset.csv"
+        existing_df = None
+        rows_removed = 0
+        
+        if processed_dataset_path.exists():
+            try:
+                existing_df = pd.read_csv(processed_dataset_path)
+                # Filter out rows for the company being uploaded
+                if "company" in existing_df.columns:
+                    rows_before = len(existing_df)
+                    existing_df = existing_df[existing_df["company"] != chosen_company]
+                    rows_removed = rows_before - len(existing_df)
+                    logger.info(f"Removed {rows_removed} existing rows for company '{chosen_company}' from processed dataset")
+            except Exception as e:
+                logger.warning(f"Could not load existing processed dataset: {e}")
+                existing_df = None
+
+        # Combine data: keep existing data for other companies + new data for this company
         if include_preloaded_competitors and PRELOADED_COMPETITORS_PATH.exists():
             competitor_df = pd.read_csv(PRELOADED_COMPETITORS_PATH)
             if "date" in competitor_df.columns and "text" in competitor_df.columns:
@@ -82,7 +106,13 @@ async def upload_dataset(
             else:
                 logger.warning("Preloaded competitor dataset skipped due to missing required columns: %s", PRELOADED_COMPETITORS_PATH)
 
-        incoming_df.to_csv(UPLOAD_PATH, index=False)
+        # Add existing data for other companies
+        if existing_df is not None and len(existing_df) > 0:
+            combined_df = pd.concat([incoming_df, existing_df], ignore_index=True, sort=False)
+        else:
+            combined_df = incoming_df
+
+        combined_df.to_csv(UPLOAD_PATH, index=False)
 
         fast_upload_mode = str(os.environ.get("FAST_UPLOAD_MODE", "true")).strip().lower() not in {"0", "false", "no"}
         try:
@@ -98,6 +128,9 @@ async def upload_dataset(
         payload["metadata"]["include_preloaded_competitors"] = bool(include_preloaded_competitors)
         payload["metadata"]["treat_upload_as_my_company"] = bool(treat_upload_as_my_company)
         payload["metadata"]["preloaded_competitors_path"] = str(PRELOADED_COMPETITORS_PATH) if include_preloaded_competitors else None
+        payload["metadata"]["rows_removed"] = rows_removed
+        payload["metadata"]["operation"] = "update" if rows_removed > 0 else "insert"
+        
         return {
             "message": "Dataset uploaded and full pipeline executed successfully.",
             "metadata": payload["metadata"],
@@ -450,8 +483,39 @@ def export_project_report(company: str | None = None):
         "- Project delivers full pipeline from raw text to explainable business actions.\n"
     )
 
+    # Convert markdown text to PDF
+    pdf_buffer = BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Custom styles for better formatting
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=16, textColor='#003366', spaceAfter=12, spaceBefore=12)
+    heading_style = ParagraphStyle('CustomHeading', parent=styles['Heading2'], fontSize=12, textColor='#003366', spaceAfter=8, spaceBefore=8)
+    normal_style = ParagraphStyle('CustomNormal', parent=styles['Normal'], fontSize=10, leading=12)
+    
+    # Parse markdown and convert to reportlab elements
+    lines = report_text.split('\n')
+    for line in lines:
+        if line.startswith('# '):
+            elements.append(Paragraph(line.replace('# ', ''), title_style))
+            elements.append(Spacer(1, 0.2*inch))
+        elif line.startswith('## '):
+            elements.append(Paragraph(line.replace('## ', ''), heading_style))
+            elements.append(Spacer(1, 0.1*inch))
+        elif line.strip().startswith('- '):
+            bullet_text = line.strip()[2:]
+            elements.append(Paragraph('• ' + bullet_text, normal_style))
+        elif line.strip():
+            elements.append(Paragraph(line.strip(), normal_style))
+        else:
+            elements.append(Spacer(1, 0.05*inch))
+    
+    doc.build(elements)
+    pdf_buffer.seek(0)
+    
     return Response(
-        content=report_text,
-        media_type="text/markdown",
-        headers={"Content-Disposition": "attachment; filename=valoredge_report.md"},
+        content=pdf_buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=valoredge_report.pdf"},
     )

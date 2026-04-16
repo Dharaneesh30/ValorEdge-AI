@@ -50,7 +50,7 @@ class AIAdviceService:
         self.ollama_model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
         self.ollama_fallback_model = os.environ.get("OLLAMA_FALLBACK_MODEL", "llama3.2:3b")
         self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-        self.ollama_timeout_seconds = 180
+        self.ollama_timeout_seconds = 15
         self.ollama_metadata_timeout_seconds = 12
         self._api_key_source = "missing"
         self.last_error = None

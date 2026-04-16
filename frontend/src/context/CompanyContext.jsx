@@ -90,6 +90,21 @@ export function CompanyProvider({ children }) {
 export function useCompanyComparison() {
   const ctx = useContext(CompanyContext);
   if (!ctx) {
+    // During HMR/hot reload, context might be temporarily unavailable
+    // Return safe defaults to prevent unmounting during development
+    if (import.meta.env.DEV) {
+      return {
+        companies: [],
+        selectedCompany: null,
+        setSelectedCompany: () => {},
+        benchmark: null,
+        loadingCompanies: false,
+        loadingBenchmark: false,
+        error: "Context loading...",
+        refreshCompanies: async () => {},
+        refreshBenchmark: async () => {},
+      };
+    }
     throw new Error("useCompanyComparison must be used inside CompanyProvider");
   }
   return ctx;

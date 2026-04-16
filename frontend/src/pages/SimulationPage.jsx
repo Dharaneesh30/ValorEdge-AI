@@ -4,6 +4,8 @@ import useApi from "../hooks/useApi";
 import API_BASE_URL from "../config/api";
 import GeneralAIInsightPanel from "../components/GeneralAIInsightPanel";
 import CompanyPageInsights from "../components/CompanyPageInsights";
+import PageAIInsights from "../components/PageAIInsights";
+import LiveInference from "../components/LiveInference";
 
 function StrategyPage() {
   const { data, loading, error } = useApi("/strategy");
@@ -63,6 +65,8 @@ function StrategyPage() {
       </section>
 
       <CompanyPageInsights page="strategy" />
+
+      <LiveInference page="strategy" data={data} />
 
       <div className="ve-card rounded-2xl p-5 sm:p-6">
         <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Strategy & Recommendations</h2>
@@ -149,6 +153,16 @@ function StrategyPage() {
           </div>
         )}
       </div>
+
+      <PageAIInsights 
+        page="strategy" 
+        data={{
+          current_reputation_score: data?.what_if_analysis?.current_reputation_score,
+          projected_reputation_score: data?.what_if_analysis?.projected_reputation_score,
+          relative_improvement_percent: data?.what_if_analysis?.relative_improvement_percent,
+          scenario_result: scenarioResult,
+        }} 
+      />
     </div>
   );
 }
